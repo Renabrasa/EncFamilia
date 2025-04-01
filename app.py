@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file
+from flask import Flask, render_template, request, redirect, url_for, send_file, jsonify, session, g
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib import colors
@@ -10,8 +10,10 @@ from datetime import datetime, timedelta
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
+from functools import wraps
 
 app = Flask(__name__)
+app.secret_key = 'sua_chave_secreta_aqui'  # Troque por algo único e seguro (ex.: 'xyz123abc')
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
@@ -36,12 +38,48 @@ def get_total_parcelas(numero, transacao_id):
 # Registrar o filtro no Jinja2
 app.jinja_env.filters['get_total_parcelas'] = get_total_parcelas
 
+# Decorador para exigir login
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Decorador para exigir ROOT (opcional, caso queira usar em outras rotas)
+def root_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session or not session.get('is_root'):
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Carregar usuário logado antes de cada requisição
+@app.before_request
+def load_logged_in_user():
+    user_id = session.get('user_id')
+    if user_id is None:
+        g.user = None
+    else:
+        conn = get_db_connection()
+        g.user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+        conn.close()
 
 # Inicializa o banco de dados
-# ... (imports permanecem iguais)
-
 def init_db():
     conn = get_db_connection()
+    # Tabela de usuários
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password TEXT NOT NULL,
+            is_root INTEGER NOT NULL DEFAULT 0
+        )
+    ''')
+    # Tabelas existentes
     conn.execute('''
         CREATE TABLE IF NOT EXISTS participantes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,81 +136,140 @@ def init_db():
     conn.commit()
     conn.close()
 
+# Rota de login
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        with get_db_connection() as conn:
+            try:
+                user = conn.execute('SELECT * FROM usuarios WHERE username = ? AND password = ?', (username, password)).fetchone()
+                if user:
+                    session['user_id'] = user['id']
+                    session['is_root'] = bool(user['is_root'])
+                    return redirect(url_for('index'))
+                else:
+                    return render_template('login.html', erro='Usuário ou senha inválidos')
+            except sqlite3.Error as e:
+                logger.error(f"Erro no login: {e}")
+                return "Erro no banco de dados!", 500
+    return render_template('login.html')
+
+# Rota de cadastro de usuários
+@app.route('/cadastro_usuario', methods=['GET', 'POST'])
+@login_required
+def cadastro_usuario():
+    if not session.get('is_root'):  # Apenas ROOT pode cadastrar
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        with get_db_connection() as conn:
+            try:
+                existing_user = conn.execute('SELECT * FROM usuarios WHERE username = ?', (username,)).fetchone()
+                if existing_user:
+                    return render_template('cadastro_usuario.html', erro='Usuário já existe', is_root=session.get('is_root', False))
+                conn.execute('INSERT INTO usuarios (username, password, is_root) VALUES (?, ?, 0)', (username, password))
+                conn.commit()
+                return render_template('cadastro_usuario.html', sucesso='Usuário cadastrado com sucesso!', is_root=session.get('is_root', False))
+            except sqlite3.Error as e:
+                conn.rollback()
+                logger.error(f"Erro no cadastro: {e}")
+                return "Erro no banco de dados!", 500
+    return render_template('cadastro_usuario.html', is_root=session.get('is_root', False))
+
+# Rota de logout
+@app.route('/logout')
+@login_required
+def logout():
+    session.pop('user_id', None)
+    session.pop('is_root', None)
+    return redirect(url_for('login'))
+
 # Rota principal (dashboard)
 @app.route('/')
+@login_required
 def index():
-    conn = get_db_connection()
     data_atual = datetime.now().strftime('%Y-%m-%d')
+    with get_db_connection() as conn:
+        try:
+            entradas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "entrada"').fetchone()[0] or 0
+            saidas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "saida"').fetchone()[0] or 0
+            participantes = conn.execute('SELECT COUNT(*) FROM participantes').fetchone()[0]
+            orcamentos = conn.execute('SELECT COUNT(*) FROM orcamentos').fetchone()[0]
+            transacoes_count = conn.execute('SELECT COUNT(*) FROM transacoes').fetchone()[0]
+            parcelas_vencidas = conn.execute('SELECT COUNT(*) FROM parcelas WHERE data_vencimento < ? AND data_pagamento IS NULL', (data_atual,)).fetchone()[0]
+            parcelas_a_vencer = conn.execute('SELECT COUNT(*) FROM parcelas WHERE data_vencimento >= ? AND data_pagamento IS NULL', (data_atual,)).fetchone()[0]
 
-    # Resumo financeiro
-    entradas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "entrada"').fetchone()[0] or 0
-    saidas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "saida"').fetchone()[0] or 0
-    participantes = conn.execute('SELECT COUNT(*) FROM participantes').fetchone()[0]
-    orcamentos = conn.execute('SELECT COUNT(*) FROM orcamentos').fetchone()[0]
-    transacoes_count = conn.execute('SELECT COUNT(*) FROM transacoes').fetchone()[0]  # Contagem de transações
+            entradas_por_mes = {}
+            saidas_por_mes = {}
+            transacoes = conn.execute('''
+                SELECT t.tipo, t.valor, t.id AS transacao_id, strftime("%Y-%m", p.data_vencimento) AS mes 
+                FROM transacoes t 
+                JOIN parcelas p ON t.id = p.transacao_id
+            ''').fetchall()
+            for t in transacoes:
+                mes = t['mes']
+                valor = t['valor'] / conn.execute('SELECT parcelas FROM transacoes WHERE id = ?', (t['transacao_id'],)).fetchone()['parcelas']
+                if t['tipo'] == 'entrada':
+                    entradas_por_mes[mes] = entradas_por_mes.get(mes, 0) + valor
+                else:
+                    saidas_por_mes[mes] = saidas_por_mes.get(mes, 0) + valor
 
-    # Parcelas vencidas e a vencer
-    parcelas_vencidas = conn.execute('SELECT COUNT(*) FROM parcelas WHERE data_vencimento < ? AND data_pagamento IS NULL', (data_atual,)).fetchone()[0]
-    parcelas_a_vencer = conn.execute('SELECT COUNT(*) FROM parcelas WHERE data_vencimento >= ? AND data_pagamento IS NULL', (data_atual,)).fetchone()[0]
-
-    # Dados para o gráfico (entradas e saídas por mês)
-    entradas_por_mes = {}
-    saidas_por_mes = {}
-    transacoes = conn.execute('''
-        SELECT t.tipo, t.valor, t.id AS transacao_id, strftime("%Y-%m", p.data_vencimento) AS mes 
-        FROM transacoes t 
-        JOIN parcelas p ON t.id = p.transacao_id
-    ''').fetchall()
-    for t in transacoes:
-        mes = t['mes']
-        valor = t['valor'] / conn.execute('SELECT parcelas FROM transacoes WHERE id = ?', (t['transacao_id'],)).fetchone()['parcelas']  # Dividir valor pelas parcelas
-        if t['tipo'] == 'entrada':
-            entradas_por_mes[mes] = entradas_por_mes.get(mes, 0) + valor
-        else:
-            saidas_por_mes[mes] = saidas_por_mes.get(mes, 0) + valor
-
-    conn.close()
-    return render_template('index.html', 
-                           entradas=entradas, 
-                           saidas=saidas, 
-                           participantes=participantes, 
-                           orcamentos=orcamentos, 
-                           transacoes_count=transacoes_count,  # Passar a contagem de transações
-                           parcelas_vencidas=parcelas_vencidas, 
-                           parcelas_a_vencer=parcelas_a_vencer, 
-                           entradas_por_mes=entradas_por_mes, 
-                           saidas_por_mes=saidas_por_mes)
+            return render_template('index.html', 
+                                   entradas=entradas, 
+                                   saidas=saidas, 
+                                   participantes=participantes, 
+                                   orcamentos=orcamentos, 
+                                   transacoes_count=transacoes_count,
+                                   parcelas_vencidas=parcelas_vencidas, 
+                                   parcelas_a_vencer=parcelas_a_vencer, 
+                                   entradas_por_mes=entradas_por_mes, 
+                                   saidas_por_mes=saidas_por_mes,
+                                   is_root=session.get('is_root', False))  # Certifique-se de que isso está aqui
+        except sqlite3.Error as e:
+            logger.error(f"Erro no index: {e}")
+            return "Erro no banco de dados!", 500
 
 # Controle de participantes
 @app.route('/participantes', methods=['GET', 'POST'])
+@login_required
 def controle_participantes():
-    conn = get_db_connection()
-    if request.method == 'POST':
-        nome = request.form['nome']
-        adulto = 1 if request.form.get('adulto') == 'on' else 0
-        crianca = 1 if request.form.get('crianca') == 'on' else 0
-        bebe_alcool = 1 if request.form.get('bebe_alcool') == 'on' else 0
+    with get_db_connection() as conn:
+        try:
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode criar
+                    return "Permissão negada: apenas administradores podem criar participantes.", 403
+                nome = request.form['nome']
+                adulto = 1 if request.form.get('adulto') == 'on' else 0
+                crianca = 1 if request.form.get('crianca') == 'on' else 0
+                bebe_alcool = 1 if request.form.get('bebe_alcool') == 'on' else 0
 
-        if adulto and crianca:
-            conn.close()
-            return "Erro: Uma pessoa não pode ser adulto e criança ao mesmo tempo!", 400
-        if crianca and bebe_alcool:
-            conn.close()
-            return "Erro: Crianças não podem consumir bebida alcoólica!", 400
+                if adulto and crianca:
+                    return "Erro: Uma pessoa não pode ser adulto e criança ao mesmo tempo!", 400
+                if crianca and bebe_alcool:
+                    return "Erro: Crianças não podem consumir bebida alcoólica!", 400
 
-        conn.execute('INSERT INTO participantes (nome, adulto, crianca, bebe_alcool) VALUES (?, ?, ?, ?)',
-                     (nome, adulto, crianca, bebe_alcool))
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_participantes'))
-    
-    participantes = conn.execute('SELECT * FROM participantes').fetchall()
-    conn.close()
-    return render_template('participantes.html', participantes=participantes)
+                conn.execute('INSERT INTO participantes (nome, adulto, crianca, bebe_alcool) VALUES (?, ?, ?, ?)',
+                             (nome, adulto, crianca, bebe_alcool))
+                conn.commit()
+            
+            participantes = conn.execute('SELECT * FROM participantes').fetchall()
+            return render_template('participantes.html', participantes=participantes, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em participantes: {e}")
+            return "Erro no banco de dados!", 500
 
-# Nova rota para importar participantes
+# Importar participantes
 @app.route('/importar_participantes', methods=['POST'])
+@login_required
 def importar_participantes():
+    if not session.get('is_root'):  # Apenas ROOT pode importar
+        return "Permissão negada: apenas administradores podem importar participantes.", 403
+    
     if 'arquivo_excel' not in request.files:
         return "Nenhum arquivo enviado!", 400
     
@@ -184,280 +281,311 @@ def importar_participantes():
         return "Formato inválido! Use um arquivo .xlsx.", 400
 
     try:
-        # Carregar o arquivo Excel
         wb = load_workbook(arquivo)
         ws = wb.active
-        
-        # Verificar cabeçalhos
         expected_headers = ["Nome", "Adulto", "Criança", "Bebe Álcool"]
         headers = [cell.value for cell in ws[1]]
         if headers != expected_headers:
             return "Formato inválido! O arquivo deve conter as colunas: Nome, Adulto, Criança, Bebe Álcool.", 400
 
-        conn = get_db_connection()
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            nome, adulto, crianca, bebe_alcool = row
-            
-            # Validação dos dados
-            if not nome or not isinstance(nome, str):
-                continue  # Pula linhas com nome inválido
-            adulto = 1 if adulto in (1, True, "1", "sim") else 0
-            crianca = 1 if crianca in (1, True, "1", "sim") else 0
-            bebe_alcool = 1 if bebe_alcool in (1, True, "1", "sim") else 0
+        with get_db_connection() as conn:
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                nome, adulto, crianca, bebe_alcool = row
+                if not nome or not isinstance(nome, str):
+                    continue
+                adulto = 1 if adulto in (1, True, "1", "sim") else 0
+                crianca = 1 if crianca in (1, True, "1", "sim") else 0
+                bebe_alcool = 1 if bebe_alcool in (1, True, "1", "sim") else 0
 
-            if adulto and crianca:
-                continue  # Ignora se for adulto e criança ao mesmo tempo
-            if crianca and bebe_alcool:
-                continue  # Ignora se criança bebe álcool
+                if adulto and crianca:
+                    continue
+                if crianca and bebe_alcool:
+                    continue
 
-            # Verificar duplicatas
-            existente = conn.execute('SELECT id FROM participantes WHERE nome = ?', (nome,)).fetchone()
-            if not existente:
-                conn.execute('INSERT INTO participantes (nome, adulto, crianca, bebe_alcool) VALUES (?, ?, ?, ?)',
-                             (nome, adulto, crianca, bebe_alcool))
-
-        conn.commit()
-        conn.close()
+                existente = conn.execute('SELECT id FROM participantes WHERE nome = ?', (nome,)).fetchone()
+                if not existente:
+                    conn.execute('INSERT INTO participantes (nome, adulto, crianca, bebe_alcool) VALUES (?, ?, ?, ?)',
+                                 (nome, adulto, crianca, bebe_alcool))
+            conn.commit()
         return redirect(url_for('controle_participantes'))
     
+    except sqlite3.Error as e:
+        logger.error(f"Erro ao importar participantes: {e}")
+        return "Erro no banco de dados!", 500
     except Exception as e:
         return f"Erro ao processar o arquivo: {str(e)}", 500
 
 # Editar participante
 @app.route('/editar_participante/<int:id>', methods=['GET', 'POST'])
+@login_required
 def editar_participante(id):
-    conn = get_db_connection()
-    participante = conn.execute('SELECT * FROM participantes WHERE id = ?', (id,)).fetchone()
-    if not participante:
-        conn.close()
-        return "Participante não encontrado!", 404
+    with get_db_connection() as conn:
+        try:
+            participante = conn.execute('SELECT * FROM participantes WHERE id = ?', (id,)).fetchone()
+            if not participante:
+                return "Participante não encontrado!", 404
 
-    if request.method == 'POST':
-        nome = request.form['nome']
-        adulto = 1 if request.form.get('adulto') == 'on' else 0
-        crianca = 1 if request.form.get('crianca') == 'on' else 0
-        bebe_alcool = 1 if request.form.get('bebe_alcool') == 'on' else 0
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode editar
+                    return "Permissão negada: apenas administradores podem editar participantes.", 403
+                nome = request.form['nome']
+                adulto = 1 if request.form.get('adulto') == 'on' else 0
+                crianca = 1 if request.form.get('crianca') == 'on' else 0
+                bebe_alcool = 1 if request.form.get('bebe_alcool') == 'on' else 0
 
-        if adulto and crianca:
-            conn.close()
-            return "Erro: Uma pessoa não pode ser adulto e criança ao mesmo tempo!", 400
-        if crianca and bebe_alcool:
-            conn.close()
-            return "Erro: Crianças não podem consumir bebida alcoólica!", 400
+                if adulto and crianca:
+                    return "Erro: Uma pessoa não pode ser adulto e criança ao mesmo tempo!", 400
+                if crianca and bebe_alcool:
+                    return "Erro: Crianças não podem consumir bebida alcoólica!", 400
 
-        conn.execute('UPDATE participantes SET nome = ?, adulto = ?, crianca = ?, bebe_alcool = ? WHERE id = ?',
-                     (nome, adulto, crianca, bebe_alcool, id))
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_participantes'))
+                conn.execute('UPDATE participantes SET nome = ?, adulto = ?, crianca = ?, bebe_alcool = ? WHERE id = ?',
+                             (nome, adulto, crianca, bebe_alcool, id))
+                conn.commit()
+                return redirect(url_for('controle_participantes'))
 
-    participantes = conn.execute('SELECT * FROM participantes').fetchall()
-    conn.close()
-    return render_template('participantes.html', participantes=participantes, edit_participante=participante)
+            participantes = conn.execute('SELECT * FROM participantes').fetchall()
+            return render_template('participantes.html', participantes=participantes, edit_participante=participante, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em editar_participante: {e}")
+            return "Erro no banco de dados!", 500
 
 # Excluir participante
 @app.route('/excluir_participante/<int:id>')
+@login_required
 def excluir_participante(id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM participantes WHERE id = ?', (id,))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('controle_participantes'))
-
+    if not session.get('is_root'):  # Apenas ROOT pode excluir
+        return "Permissão negada: apenas administradores podem excluir participantes.", 403
+    
+    with get_db_connection() as conn:
+        try:
+            conn.execute('DELETE FROM participantes WHERE id = ?', (id,))
+            conn.commit()
+            return redirect(url_for('controle_participantes'))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em excluir_participante: {e}")
+            return "Erro no banco de dados!", 500
+        
+        
 # Controle financeiro
 @app.route('/financeiro', methods=['GET', 'POST'])
+@login_required
 def controle_financeiro():
-    conn = get_db_connection()
     data_atual = datetime.now().strftime('%Y-%m-%d')
+    with get_db_connection() as conn:
+        try:
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode modificar
+                    return "Permissão negada: apenas administradores podem modificar transações.", 403
+                action = request.form.get('action')
+                if action == 'cadastrar':
+                    tipo = request.form['tipo']
+                    descricao = request.form['descricao']
+                    participante_id = request.form['participante_id']
+                    valor = float(request.form['valor'])
+                    parcelas = int(request.form['parcelas'])
+                    data_vencimento = request.form['data_vencimento']
 
-    try:
-        if request.method == 'POST':
-            action = request.form.get('action')
-            if action == 'cadastrar':
-                tipo = request.form['tipo']
-                descricao = request.form['descricao']
-                participante_id = request.form['participante_id']
-                valor = float(request.form['valor'])
-                parcelas = int(request.form['parcelas'])
-                data_vencimento = request.form['data_vencimento']
+                    conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas) VALUES (?, ?, ?, ?, ?)',
+                                 (tipo, descricao, participante_id, valor, parcelas))
+                    transacao_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+                    valor_parcela = valor / parcelas
+                    data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
+                    for i in range(parcelas):
+                        data_parcela = (data_inicial + timedelta(days=30 * i)).strftime('%Y-%m-%d')
+                        conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
+                                     (transacao_id, i + 1, valor_parcela, data_parcela, 0))
+                    conn.commit()
 
-                # Inserir transação
-                conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas) VALUES (?, ?, ?, ?, ?)',
-                             (tipo, descricao, participante_id, valor, parcelas))
-                transacao_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+                    participante_nome = conn.execute('SELECT nome FROM participantes WHERE id = ?', (participante_id,)).fetchone()['nome']
+                    return jsonify({
+                        'success': True,
+                        'transacao_id': transacao_id,
+                        'tipo': tipo,
+                        'descricao': descricao,
+                        'participante_id': participante_id,
+                        'participante_nome': participante_nome,
+                        'valor': valor,
+                        'parcelas': parcelas,
+                        'data_vencimento': data_vencimento
+                    })
+                elif action == 'editar':
+                    transacao_id = request.form['transacao_id']
+                    tipo = request.form['tipo']
+                    descricao = request.form['descricao']
+                    participante_id = request.form['participante_id']
+                    valor = float(request.form['valor'])
+                    parcelas = int(request.form['parcelas'])
+                    data_vencimento = request.form['data_vencimento']
 
-                # Inserir parcelas com pago = 0 (não pago)
-                valor_parcela = valor / parcelas
-                data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
-                for i in range(parcelas):
-                    data_parcela = (data_inicial + timedelta(days=30 * i)).strftime('%Y-%m-%d')
-                    conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
-                                 (transacao_id, i + 1, valor_parcela, data_parcela, 0))  # Adicionado pago = 0
-                conn.commit()
+                    conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ? WHERE id = ?',
+                                 (tipo, descricao, participante_id, valor, parcelas, transacao_id))
+                    conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
+                    valor_parcela = valor / parcelas
+                    data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
+                    for i in range(parcelas):
+                        data_parcela = (data_inicial + timedelta(days=30 * i)).strftime('%Y-%m-%d')
+                        conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
+                                     (transacao_id, i + 1, valor_parcela, data_parcela, 0))
+                    conn.commit()
+                elif action == 'excluir':
+                    transacao_id = request.form['transacao_id']
+                    conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
+                    conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
+                    conn.commit()
+                return redirect(url_for('controle_financeiro', busca=request.args.get('busca', '')))
 
-                # Obter nome do participante para retorno
-                participante_nome = conn.execute('SELECT nome FROM participantes WHERE id = ?', (participante_id,)).fetchone()['nome']
+            busca = request.args.get('busca', '')
+            query = '''
+                SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, p.nome AS participante_nome, t.participante_id
+                FROM transacoes t
+                JOIN participantes p ON t.participante_id = p.id
+                JOIN parcelas par ON t.id = par.transacao_id
+                WHERE par.numero = 1
+            '''
+            params = []
+            if busca:
+                query += ' AND t.descricao LIKE ?'
+                params.append(f'%{busca}%')
+            fluxo_caixa = conn.execute(query, params).fetchall()
+            participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
 
-                return jsonify({
-                    'success': True,
-                    'transacao_id': transacao_id,
-                    'tipo': tipo,
-                    'descricao': descricao,
-                    'participante_id': participante_id,
-                    'participante_nome': participante_nome,
-                    'valor': valor,
-                    'parcelas': parcelas,
-                    'data_vencimento': data_vencimento
-                })
-            elif action == 'editar':
-                transacao_id = request.form['transacao_id']
-                tipo = request.form['tipo']
-                descricao = request.form['descricao']
-                participante_id = request.form['participante_id']
-                valor = float(request.form['valor'])
-                parcelas = int(request.form['parcelas'])
-                data_vencimento = request.form['data_vencimento']
+            return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, participantes=participantes, 
+                                   data_atual=data_atual, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em financeiro: {e}")
+            return "Erro no banco de dados!", 500
 
-                conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ? WHERE id = ?',
-                             (tipo, descricao, participante_id, valor, parcelas, transacao_id))
-                conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
-                valor_parcela = valor / parcelas
-                data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
-                for i in range(parcelas):
-                    data_parcela = (data_inicial + timedelta(days=30 * i)).strftime('%Y-%m-%d')
-                    conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
-                                 (transacao_id, i + 1, valor_parcela, data_parcela, 0))  # Adicionado pago = 0
-                conn.commit()
-            elif action == 'excluir':
-                transacao_id = request.form['transacao_id']
-                conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
-                conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
-                conn.commit()
-            return redirect(url_for('controle_financeiro', busca=request.args.get('busca', '')))
-
-        # GET: Renderizar a página
-        busca = request.args.get('busca', '')
-        query = '''
-            SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, p.nome AS participante_nome, t.participante_id
-            FROM transacoes t
-            JOIN participantes p ON t.participante_id = p.id
-            JOIN parcelas par ON t.id = par.transacao_id
-            WHERE par.numero = 1  -- Pegar apenas a primeira parcela para a data
-        '''
-        params = []
-        if busca:
-            query += ' AND t.descricao LIKE ?'
-            params.append(f'%{busca}%')
-        fluxo_caixa = conn.execute(query, params).fetchall()
-
-        participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
-
-        return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, participantes=participantes, data_atual=data_atual)
-
-    finally:
-        conn.close()
-        
-        
 # Editar transação
 @app.route('/editar_transacao/<int:id>', methods=['GET', 'POST'])
+@login_required
 def editar_transacao(id):
-    conn = get_db_connection()
-    transacao = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id WHERE t.id = ?', (id,)).fetchone()
-    if not transacao:
-        conn.close()
-        return "Transação não encontrada!", 404
+    with get_db_connection() as conn:
+        try:
+            transacao = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id WHERE t.id = ?', (id,)).fetchone()
+            if not transacao:
+                return "Transação não encontrada!", 404
 
-    if request.method == 'POST':
-        novo_numero_parcelas = int(request.form['parcelas'])
-        valor_total = float(transacao['valor'])
-        data_vencimento_inicial = datetime.fromisoformat(conn.execute('SELECT data_vencimento FROM parcelas WHERE transacao_id = ? AND numero = 1', (id,)).fetchone()['data_vencimento'])
-        
-        novo_valor_parcela = round(valor_total / novo_numero_parcelas, 2)
-        conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (id,))
-        for i in range(novo_numero_parcelas):
-            vencimento = data_vencimento_inicial + timedelta(days=30 * i)
-            conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
-                         (id, i + 1, novo_valor_parcela, vencimento.isoformat(), 0))
-        conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (novo_numero_parcelas, id))
-        
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_financeiro'))
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode editar
+                    return "Permissão negada: apenas administradores podem editar transações.", 403
+                novo_numero_parcelas = int(request.form['parcelas'])
+                valor_total = float(transacao['valor'])
+                data_vencimento_inicial = datetime.fromisoformat(conn.execute('SELECT data_vencimento FROM parcelas WHERE transacao_id = ? AND numero = 1', (id,)).fetchone()['data_vencimento'])
+                
+                novo_valor_parcela = round(valor_total / novo_numero_parcelas, 2)
+                conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (id,))
+                for i in range(novo_numero_parcelas):
+                    vencimento = data_vencimento_inicial + timedelta(days=30 * i)
+                    conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
+                                 (id, i + 1, novo_valor_parcela, vencimento.isoformat(), 0))
+                conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (novo_numero_parcelas, id))
+                
+                conn.commit()
+                return redirect(url_for('controle_financeiro'))
 
-    participantes = conn.execute('SELECT * FROM participantes').fetchall()
-    fluxo = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id').fetchall()
-    conn.close()
-    return render_template('financeiro.html', fluxo=fluxo, participantes=participantes, resumo_parcelas={}, edit_transacao=transacao)
+            participantes = conn.execute('SELECT * FROM participantes').fetchall()
+            fluxo = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id').fetchall()
+            return render_template('financeiro.html', fluxo=fluxo, participantes=participantes, resumo_parcelas={}, edit_transacao=transacao, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em editar_transacao: {e}")
+            return "Erro no banco de dados!", 500
 
 # Dar baixa em parcelas
 @app.route('/dar_baixa_parcelas', methods=['POST'])
+@login_required
 def dar_baixa_parcelas():
-    conn = get_db_connection()
-    parcelas_selecionadas = request.form.getlist('parcelas[]')
+    if not session.get('is_root'):  # Apenas ROOT pode dar baixa
+        return "Permissão negada: apenas administradores podem dar baixa em parcelas.", 403
     
-    for parcela_id in parcelas_selecionadas:
-        id_transacao, numero = map(int, parcela_id.split('-'))
-        data_pagamento = request.form.get(f'data_pagamento_{id_transacao}-{numero}')
-        if data_pagamento:
-            conn.execute('''
-                UPDATE parcelas 
-                SET pago = 1, data_pagamento = ? 
-                WHERE transacao_id = ? AND numero = ?
-            ''', (data_pagamento, id_transacao, numero))
-    
-    conn.commit()
-    conn.close()
-    return redirect(url_for('controle_financeiro'))
-
+    with get_db_connection() as conn:
+        try:
+            parcelas_selecionadas = request.form.getlist('parcelas[]')
+            
+            for parcela_id in parcelas_selecionadas:
+                id_transacao, numero = map(int, parcela_id.split('-'))
+                data_pagamento = request.form.get(f'data_pagamento_{id_transacao}-{numero}')
+                if data_pagamento:
+                    conn.execute('''
+                        UPDATE parcelas 
+                        SET pago = 1, data_pagamento = ? 
+                        WHERE transacao_id = ? AND numero = ?
+                    ''', (data_pagamento, id_transacao, numero))
+            
+            conn.commit()
+            return redirect(url_for('controle_financeiro'))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em dar_baixa_parcelas: {e}")
+            return "Erro no banco de dados!", 500
+        
+        
 # Editar parcela
 @app.route('/editar_parcela/<int:id_transacao>/<int:numero>', methods=['GET', 'POST'])
+@login_required
 def editar_parcela(id_transacao, numero):
-    conn = get_db_connection()
-    parcela = conn.execute('SELECT * FROM parcelas WHERE transacao_id = ? AND numero = ?', (id_transacao, numero)).fetchone()
-    if not parcela:
-        conn.close()
-        return "Parcela não encontrada!", 404
+    with get_db_connection() as conn:
+        try:
+            parcela = conn.execute('SELECT * FROM parcelas WHERE transacao_id = ? AND numero = ?', (id_transacao, numero)).fetchone()
+            if not parcela:
+                return "Parcela não encontrada!", 404
 
-    transacao = conn.execute('SELECT * FROM transacoes WHERE id = ?', (id_transacao,)).fetchone()
-    if not transacao:
-        conn.close()
-        return "Transação não encontrada!", 404
+            transacao = conn.execute('SELECT * FROM transacoes WHERE id = ?', (id_transacao,)).fetchone()
+            if not transacao:
+                return "Transação não encontrada!", 404
 
-    if request.method == 'POST':
-        valor = round(float(request.form['valor']), 2)
-        data_vencimento = datetime.strptime(request.form['data_vencimento'], '%Y-%m-%d')
-        pago = 1 if request.form.get('pago') == 'on' else 0
-        data_pagamento = request.form['data_pagamento'] if pago and request.form['data_pagamento'] else None
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode editar
+                    return "Permissão negada: apenas administradores podem editar parcelas.", 403
+                valor = round(float(request.form['valor']), 2)
+                data_vencimento = datetime.strptime(request.form['data_vencimento'], '%Y-%m-%d')
+                pago = 1 if request.form.get('pago') == 'on' else 0
+                data_pagamento = request.form['data_pagamento'] if pago and request.form['data_pagamento'] else None
 
-        conn.execute('UPDATE parcelas SET valor = ?, data_vencimento = ?, pago = ?, data_pagamento = ? WHERE transacao_id = ? AND numero = ?',
-                     (valor, data_vencimento.isoformat(), pago, data_pagamento, id_transacao, numero))
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_financeiro'))
+                conn.execute('UPDATE parcelas SET valor = ?, data_vencimento = ?, pago = ?, data_pagamento = ? WHERE transacao_id = ? AND numero = ?',
+                             (valor, data_vencimento.isoformat(), pago, data_pagamento, id_transacao, numero))
+                conn.commit()
+                return redirect(url_for('controle_financeiro'))
 
-    participantes = conn.execute('SELECT * FROM participantes').fetchall()
-    fluxo = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id').fetchall()
-    conn.close()
-    return render_template('financeiro.html', fluxo=fluxo, participantes=participantes, resumo_parcelas={}, edit_parcela={'transacao': transacao, 'parcela': parcela})
+            participantes = conn.execute('SELECT * FROM participantes').fetchall()
+            fluxo = conn.execute('SELECT t.*, p.nome AS participante_nome FROM transacoes t JOIN participantes p ON t.participante_id = p.id').fetchall()
+            return render_template('financeiro.html', fluxo=fluxo, participantes=participantes, resumo_parcelas={}, 
+                                   edit_parcela={'transacao': transacao, 'parcela': parcela}, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em editar_parcela: {e}")
+            return "Erro no banco de dados!", 500
 
 # Excluir parcela
 @app.route('/excluir_parcela/<int:id_transacao>/<int:numero>')
+@login_required
 def excluir_parcela(id_transacao, numero):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM parcelas WHERE transacao_id = ? AND numero = ?', (id_transacao, numero))
+    if not session.get('is_root'):  # Apenas ROOT pode excluir
+        return "Permissão negada: apenas administradores podem excluir parcelas.", 403
     
-    parcelas_restantes = conn.execute('SELECT COUNT(*) FROM parcelas WHERE transacao_id = ?', (id_transacao,)).fetchone()[0]
-    conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (parcelas_restantes, id_transacao))
-    
-    if parcelas_restantes == 0:
-        conn.execute('DELETE FROM transacoes WHERE id = ?', (id_transacao,))
-    
-    conn.commit()
-    conn.close()
-    return redirect(url_for('controle_financeiro'))
+    with get_db_connection() as conn:
+        try:
+            conn.execute('DELETE FROM parcelas WHERE transacao_id = ? AND numero = ?', (id_transacao, numero))
+            
+            parcelas_restantes = conn.execute('SELECT COUNT(*) FROM parcelas WHERE transacao_id = ?', (id_transacao,)).fetchone()[0]
+            conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (parcelas_restantes, id_transacao))
+            
+            if parcelas_restantes == 0:
+                conn.execute('DELETE FROM transacoes WHERE id = ?', (id_transacao,))
+            
+            conn.commit()
+            return redirect(url_for('controle_financeiro'))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em excluir_parcela: {e}")
+            return "Erro no banco de dados!", 500
 
 # Resumo financeiro
 @app.route('/resumo')
+@login_required
 def resumo_financeiro():
     conn = get_db_connection()
     total_entradas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "entrada"').fetchone()[0] or 0
@@ -523,12 +651,11 @@ def resumo_financeiro():
         'participantes': resumo_participantes
     }
     conn.close()
-    return render_template('resumo.html', resumo=resumo)
+    return render_template('resumo.html', resumo=resumo, is_root=session.get('is_root', False))
 
 # Gerar PDF
-# ... (código anterior do app.py permanece igual até a rota /gerar_pdf)
-
 @app.route('/gerar_pdf')
+@login_required
 def gerar_pdf():
     conn = get_db_connection()
     total_entradas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "entrada"').fetchone()[0] or 0
@@ -590,37 +717,17 @@ def gerar_pdf():
     doc = SimpleDocTemplate(pdf_file, pagesize=letter)
     elements = []
 
-    # Estilos
     base_styles = getSampleStyleSheet()
     styles = {
-        'Title': ParagraphStyle(
-            'Title',
-            parent=base_styles['Title'],
-            fontName='Helvetica-Bold',
-            fontSize=20,
-            textColor=colors.HexColor('#2c3e50')
-        ),
-        'Heading2': ParagraphStyle(
-            'Heading2',
-            parent=base_styles['Normal'],
-            fontName='Helvetica-Bold',
-            fontSize=14,
-            textColor=colors.HexColor('#2c3e50')
-        ),
-        'Normal': ParagraphStyle(
-            'Normal',
-            parent=base_styles['Normal'],
-            fontName='Helvetica',
-            fontSize=10
-        )
+        'Title': ParagraphStyle('Title', parent=base_styles['Title'], fontName='Helvetica-Bold', fontSize=20, textColor=colors.HexColor('#2c3e50')),
+        'Heading2': ParagraphStyle('Heading2', parent=base_styles['Normal'], fontName='Helvetica-Bold', fontSize=14, textColor=colors.HexColor('#2c3e50')),
+        'Normal': ParagraphStyle('Normal', parent=base_styles['Normal'], fontName='Helvetica', fontSize=10)
     }
 
-    # Título
     title = Paragraph("Resumo Financeiro", styles['Title'])
     elements.append(title)
     elements.append(Paragraph("<br/><br/>", styles['Normal']))
 
-    # Resumo Geral
     data_totais = [
         ["Entradas", "Saídas", "Saldo", "Recebidos", "A Vencer", "Vencidos"],
         [f"R$ {total_entradas:.2f}", f"R$ {total_saidas:.2f}", f"R$ {saldo:.2f}", 
@@ -634,12 +741,12 @@ def gerar_pdf():
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 12),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (0, 1), colors.HexColor('#27ae60')),  # Entradas
-        ('BACKGROUND', (1, 1), (1, 1), colors.HexColor('#e74c3c')),  # Saídas
-        ('BACKGROUND', (2, 1), (2, 1), colors.HexColor('#3498db')),  # Saldo
-        ('BACKGROUND', (3, 1), (3, 1), colors.HexColor('#27ae60')),  # Recebidos
-        ('BACKGROUND', (4, 1), (4, 1), colors.HexColor('#e67e22')),  # A Vencer
-        ('BACKGROUND', (5, 1), (5, 1), colors.HexColor('#e74c3c')),  # Vencidos
+        ('BACKGROUND', (0, 1), (0, 1), colors.HexColor('#27ae60')),
+        ('BACKGROUND', (1, 1), (1, 1), colors.HexColor('#e74c3c')),
+        ('BACKGROUND', (2, 1), (2, 1), colors.HexColor('#3498db')),
+        ('BACKGROUND', (3, 1), (3, 1), colors.HexColor('#27ae60')),
+        ('BACKGROUND', (4, 1), (4, 1), colors.HexColor('#e67e22')),
+        ('BACKGROUND', (5, 1), (5, 1), colors.HexColor('#e74c3c')),
         ('TEXTCOLOR', (0, 1), (-1, 1), colors.white),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
         ('BOX', (0, 0), (-1, -1), 2, colors.black),
@@ -648,7 +755,6 @@ def gerar_pdf():
     elements.append(tabela_totais)
     elements.append(Paragraph("<br/><br/>", styles['Normal']))
 
-    # Resumo por Participante
     elements.append(Paragraph("Resumo por Participante", styles['Heading2']))
     elements.append(Paragraph("<br/>", styles['Normal']))
 
@@ -682,9 +788,9 @@ def gerar_pdf():
     doc.build(elements)
     return send_file(pdf_file, as_attachment=True)
 
-# ... (resto do código permanece igual)
-
+# Gerar Excel
 @app.route('/gerar_excel')
+@login_required
 def gerar_excel():
     conn = get_db_connection()
     total_entradas = conn.execute('SELECT SUM(valor) FROM transacoes WHERE tipo = "entrada"').fetchone()[0] or 0
@@ -742,16 +848,12 @@ def gerar_excel():
 
     conn.close()
 
-    # Criar o arquivo Excel
     wb = Workbook()
-
-    # Aba "Resumo Geral"
     ws_geral = wb.active
     ws_geral.title = "Resumo Geral"
     headers = ["Entradas", "Saídas", "Saldo", "Recebidos", "A Vencer", "Vencidos"]
     values = [total_entradas, total_saidas, saldo, valores_recebidos, valores_a_vencer, valores_vencidos]
 
-    # Estilização do cabeçalho
     header_fill = PatternFill(start_color="2c3e50", end_color="2c3e50", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
     for col, header in enumerate(headers, 1):
@@ -760,29 +862,23 @@ def gerar_excel():
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Dados
     value_fill = PatternFill(start_color="f9fbfd", end_color="f9fbfd", fill_type="solid")
     for col, value in enumerate(values, 1):
         cell = ws_geral.cell(row=2, column=col, value=f"R$ {value:.2f}")
         cell.fill = value_fill
         cell.alignment = Alignment(horizontal="center", vertical="center")
     
-    # Ajustar largura das colunas
     for col in range(1, 7):
         ws_geral.column_dimensions[ws_geral.cell(row=1, column=col).column_letter].width = 15
 
-    # Aba "Por Participante"
     ws_participantes = wb.create_sheet("Por Participante")
     headers = ["Participante", "Entradas", "Saídas", "Recebidos", "A Vencer", "Vencidos"]
-
-    # Estilização do cabeçalho
     for col, header in enumerate(headers, 1):
         cell = ws_participantes.cell(row=1, column=col, value=header)
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Dados
     for row, (nome, dados) in enumerate(resumo_participantes.items(), 2):
         ws_participantes.cell(row=row, column=1, value=nome).fill = value_fill
         ws_participantes.cell(row=row, column=2, value=f"R$ {dados['entradas']:.2f}").fill = value_fill
@@ -793,12 +889,10 @@ def gerar_excel():
         for col in range(1, 7):
             ws_participantes.cell(row=row, column=col).alignment = Alignment(horizontal="center", vertical="center")
 
-    # Ajustar largura das colunas
     ws_participantes.column_dimensions['A'].width = 20
     for col in range(2, 7):
         ws_participantes.column_dimensions[ws_participantes.cell(row=1, column=col).column_letter].width = 15
 
-    # Salvar o arquivo em memória
     excel_buffer = BytesIO()
     wb.save(excel_buffer)
     excel_buffer.seek(0)
@@ -810,200 +904,223 @@ def gerar_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# ... (após as rotas existentes)
-
+# Controle de orçamentos
 @app.route('/orcamentos', methods=['GET', 'POST'])
+@login_required
 def controle_orcamentos():
-    conn = get_db_connection()
-    if request.method == 'POST':
-        nome = request.form['nome']
-        valor_previsto = float(request.form['valor_previsto'])
-        categoria = request.form.get('categoria', '')
-        
-        conn.execute('INSERT INTO orcamentos (nome, valor_previsto, categoria) VALUES (?, ?, ?)',
-                     (nome, valor_previsto, categoria))
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_orcamentos'))
-    
-    orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
-    resumo_orcamentos = []
-    for orcamento in orcamentos:
-        valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (orcamento['id'],)).fetchone()[0] or 0
-        status = "Dentro do Orçamento" if valor_real <= orcamento['valor_previsto'] else "Excedido"
-        resumo_orcamentos.append({
-            'id': orcamento['id'],
-            'nome': orcamento['nome'],
-            'valor_previsto': orcamento['valor_previsto'],
-            'valor_real': valor_real,
-            'categoria': orcamento['categoria'],
-            'status': status
-        })
-    
-    conn.close()
-    return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos)
+    with get_db_connection() as conn:
+        try:
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode criar
+                    return "Permissão negada: apenas administradores podem criar orçamentos.", 403
+                nome = request.form['nome']
+                valor_previsto = float(request.form['valor_previsto'])
+                categoria = request.form.get('categoria', '')
+                
+                conn.execute('INSERT INTO orcamentos (nome, valor_previsto, categoria) VALUES (?, ?, ?)',
+                             (nome, valor_previsto, categoria))
+                conn.commit()
+            
+            orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
+            resumo_orcamentos = []
+            for orcamento in orcamentos:
+                valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (orcamento['id'],)).fetchone()[0] or 0
+                status = "Dentro do Orçamento" if valor_real <= orcamento['valor_previsto'] else "Excedido"
+                resumo_orcamentos.append({
+                    'id': orcamento['id'],
+                    'nome': orcamento['nome'],
+                    'valor_previsto': orcamento['valor_previsto'],
+                    'valor_real': valor_real,
+                    'categoria': orcamento['categoria'],
+                    'status': status
+                })
+            
+            return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em orcamentos: {e}")
+            return "Erro no banco de dados!", 500
 
+# Editar orçamento
 @app.route('/editar_orcamento/<int:id>', methods=['GET', 'POST'])
+@login_required
 def editar_orcamento(id):
-    conn = get_db_connection()
-    orcamento = conn.execute('SELECT * FROM orcamentos WHERE id = ?', (id,)).fetchone()
-    if not orcamento:
-        conn.close()
-        return "Orçamento não encontrado!", 404
+    with get_db_connection() as conn:
+        try:
+            orcamento = conn.execute('SELECT * FROM orcamentos WHERE id = ?', (id,)).fetchone()
+            if not orcamento:
+                return "Orçamento não encontrado!", 404
 
-    if request.method == 'POST':
-        nome = request.form['nome']
-        valor_previsto = float(request.form['valor_previsto'])
-        categoria = request.form.get('categoria', '')
-        
-        conn.execute('UPDATE orcamentos SET nome = ?, valor_previsto = ?, categoria = ? WHERE id = ?',
-                     (nome, valor_previsto, categoria, id))
-        conn.commit()
-        conn.close()
-        return redirect(url_for('controle_orcamentos'))
+            if request.method == 'POST':
+                if not session.get('is_root'):  # Apenas ROOT pode editar
+                    return "Permissão negada: apenas administradores podem editar orçamentos.", 403
+                nome = request.form['nome']
+                valor_previsto = float(request.form['valor_previsto'])
+                categoria = request.form.get('categoria', '')
+                
+                conn.execute('UPDATE orcamentos SET nome = ?, valor_previsto = ?, categoria = ? WHERE id = ?',
+                             (nome, valor_previsto, categoria, id))
+                conn.commit()
+                return redirect(url_for('controle_orcamentos'))
 
-    orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
-    resumo_orcamentos = []
-    for o in orcamentos:
-        valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (o['id'],)).fetchone()[0] or 0
-        status = "Dentro do Orçamento" if valor_real <= o['valor_previsto'] else "Excedido"
-        resumo_orcamentos.append({
-            'id': o['id'],
-            'nome': o['nome'],
-            'valor_previsto': o['valor_previsto'],
-            'valor_real': valor_real,
-            'categoria': o['categoria'],
-            'status': status
-        })
-    
-    conn.close()
-    return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, edit_orcamento=orcamento)
+            orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
+            resumo_orcamentos = []
+            for o in orcamentos:
+                valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (o['id'],)).fetchone()[0] or 0
+                status = "Dentro do Orçamento" if valor_real <= o['valor_previsto'] else "Excedido"
+                resumo_orcamentos.append({
+                    'id': o['id'],
+                    'nome': o['nome'],
+                    'valor_previsto': o['valor_previsto'],
+                    'valor_real': valor_real,
+                    'categoria': o['categoria'],
+                    'status': status
+                })
+            
+            return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, edit_orcamento=orcamento, is_root=session.get('is_root', False))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em editar_orcamento: {e}")
+            return "Erro no banco de dados!", 500
 
+# Excluir orçamento
 @app.route('/excluir_orcamento/<int:id>')
+@login_required
 def excluir_orcamento(id):
-    conn = get_db_connection()
-    conn.execute('DELETE FROM orcamentos WHERE id = ?', (id,))
-    conn.commit()
-    conn.close()
-    return redirect(url_for('controle_orcamentos'))
+    if not session.get('is_root'):  # Apenas ROOT pode excluir
+        return "Permissão negada: apenas administradores podem excluir orçamentos.", 403
+    
+    with get_db_connection() as conn:
+        try:
+            conn.execute('DELETE FROM orcamentos WHERE id = ?', (id,))
+            conn.commit()
+            return redirect(url_for('controle_orcamentos'))
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em excluir_orcamento: {e}")
+            return "Erro no banco de dados!", 500
 
-# Nova rota para gerenciar baixas
-from flask import Flask, render_template, request, redirect, url_for, jsonify  # Adicione jsonify
-
+# Gerenciar baixas
 @app.route('/baixas', methods=['GET', 'POST'])
+@login_required
 def baixas():
     conn = get_db_connection()
     data_atual = datetime.now().strftime('%Y-%m-%d')
 
-    if request.method == 'POST':
-        action = request.form.get('action')
-        if action == 'dar_baixa':
-            parcela_id = request.form['parcela_id']
-            data_pagamento = request.form['data_pagamento']
-            conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
-            conn.commit()
-            # Retornar JSON para AJAX
-            parcela = conn.execute('SELECT t.id AS transacao_id, t.parcelas AS total_parcelas FROM parcelas p JOIN transacoes t ON p.transacao_id = t.id WHERE p.id = ?', (parcela_id,)).fetchone()
+    try:
+        if request.method == 'POST':
+            if not session.get('is_root'):  # Apenas ROOT pode modificar
+                return "Permissão negada: apenas administradores podem gerenciar baixas.", 403
+            action = request.form.get('action')
+            if action == 'dar_baixa':
+                parcela_id = request.form['parcela_id']
+                data_pagamento = request.form['data_pagamento']
+                conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
+                conn.commit()
+                parcela = conn.execute('SELECT t.id AS transacao_id, t.parcelas AS total_parcelas FROM parcelas p JOIN transacoes t ON p.transacao_id = t.id WHERE p.id = ?', (parcela_id,)).fetchone()
+                return jsonify({
+                    'success': True,
+                    'parcela_id': parcela_id,
+                    'data_pagamento': data_pagamento,
+                    'transacao_id': parcela['transacao_id'],
+                    'total_parcelas': parcela['total_parcelas']
+                })
+            elif action == 'editar_parcelas':
+                transacao_id = request.form['transacao_id']
+                novas_parcelas = int(request.form['novas_parcelas'])
+                conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (novas_parcelas, transacao_id))
+                conn.commit()
+            elif action == 'editar_parcela':
+                parcela_id = request.form['parcela_id']
+                valor = float(request.form['valor'])
+                data_vencimento = request.form['data_vencimento']
+                conn.execute('UPDATE parcelas SET valor = ?, data_vencimento = ? WHERE id = ?', (valor, data_vencimento, parcela_id))
+                conn.commit()
+            elif action == 'editar_baixa':
+                parcela_id = request.form['parcela_id']
+                data_pagamento = request.form['data_pagamento']
+                conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
+                conn.commit()
+            elif action == 'excluir_parcela':
+                parcela_id = request.form['parcela_id']
+                conn.execute('DELETE FROM parcelas WHERE id = ?', (parcela_id,))
+                conn.commit()
+            elif action == 'excluir_transacao':
+                transacao_id = request.form['transacao_id']
+                conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
+                conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
+                conn.commit()
+            elif action == 'excluir_baixa':
+                parcela_id = request.form['parcela_id']
+                conn.execute('UPDATE parcelas SET data_pagamento = NULL WHERE id = ?', (parcela_id,))
+                conn.commit()
             conn.close()
-            return jsonify({
-                'success': True,
-                'parcela_id': parcela_id,
-                'data_pagamento': data_pagamento,
-                'transacao_id': parcela['transacao_id'],
-                'total_parcelas': parcela['total_parcelas']
-            })
-        elif action == 'editar_parcelas':
-            transacao_id = request.form['transacao_id']
-            novas_parcelas = int(request.form['novas_parcelas'])
-            conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (novas_parcelas, transacao_id))
-            conn.commit()
-        elif action == 'editar_parcela':
-            parcela_id = request.form['parcela_id']
-            valor = float(request.form['valor'])
-            data_vencimento = request.form['data_vencimento']
-            conn.execute('UPDATE parcelas SET valor = ?, data_vencimento = ? WHERE id = ?', (valor, data_vencimento, parcela_id))
-            conn.commit()
-        elif action == 'editar_baixa':
-            parcela_id = request.form['parcela_id']
-            data_pagamento = request.form['data_pagamento']
-            conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
-            conn.commit()
-        elif action == 'excluir_parcela':
-            parcela_id = request.form['parcela_id']
-            conn.execute('DELETE FROM parcelas WHERE id = ?', (parcela_id,))
-            conn.commit()
-        elif action == 'excluir_transacao':
-            transacao_id = request.form['transacao_id']
-            conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
-            conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
-            conn.commit()
-        elif action == 'excluir_baixa':
-            parcela_id = request.form['parcela_id']
-            conn.execute('UPDATE parcelas SET data_pagamento = NULL WHERE id = ?', (parcela_id,))
-            conn.commit()
+            return redirect(url_for('baixas', busca=request.args.get('busca', ''), participante=request.args.get('participante', ''), 
+                                   status=request.args.get('status', ''), data_inicio=request.args.get('data_inicio', '')))
+
+        busca = request.args.get('busca', '')
+        participante = request.args.get('participante', '')
+        status = request.args.get('status', '')
+        data_inicio = request.args.get('data_inicio', '')
+
+        query = '''
+            SELECT p.id AS parcela_id, t.id AS transacao_id, t.descricao, t.parcelas, p.numero, p.valor, 
+                   p.data_vencimento, p.data_pagamento, part.nome AS participante_nome,
+                   CASE 
+                       WHEN p.data_pagamento IS NOT NULL THEN 'recebidas'
+                       WHEN p.data_vencimento < ? THEN 'vencidas'
+                       ELSE 'a vencer'
+                   END AS status
+            FROM parcelas p
+            JOIN transacoes t ON p.transacao_id = t.id
+            JOIN participantes part ON t.participante_id = part.id
+            WHERE 1=1
+        '''
+        params = [data_atual]
+
+        if busca:
+            query += ' AND (t.descricao LIKE ? OR part.nome LIKE ?)'
+            params.extend([f'%{busca}%', f'%{busca}%'])
+        if participante:
+            query += ' AND part.id = ?'
+            params.append(participante)
+        if status:
+            query += ' AND CASE WHEN p.data_pagamento IS NOT NULL THEN "recebidas" WHEN p.data_vencimento < ? THEN "vencidas" ELSE "a vencer" END = ?'
+            params.extend([data_atual, status])
+        if data_inicio:
+            query += ' AND p.data_vencimento >= ?'
+            params.append(data_inicio)
+
+        todas_parcelas = conn.execute(query, params).fetchall()
+        parcelas_a_vencer = [p for p in todas_parcelas if p['status'] == 'a vencer']
+        parcelas_vencidas = [p for p in todas_parcelas if p['status'] == 'vencidas']
+        parcelas_recebidas = [p for p in todas_parcelas if p['status'] == 'recebidas']
+
+        participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
         conn.close()
-        return redirect(url_for('baixas', busca=request.args.get('busca', ''), participante=request.args.get('participante', ''), 
-                               status=request.args.get('status', ''), data_inicio=request.args.get('data_inicio', '')))
 
-    # GET: Renderizar a página
-    busca = request.args.get('busca', '')
-    participante = request.args.get('participante', '')
-    status = request.args.get('status', '')
-    data_inicio = request.args.get('data_inicio', '')
+        return render_template('baixas.html', 
+                               parcelas_a_vencer=parcelas_a_vencer, 
+                               parcelas_vencidas=parcelas_vencidas, 
+                               parcelas_recebidas=parcelas_recebidas, 
+                               busca=busca, 
+                               participante=participante, 
+                               status=status, 
+                               data_inicio=data_inicio, 
+                               data_atual=data_atual, 
+                               participantes=participantes,
+                               is_root=session.get('is_root', False))
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Erro em baixas: {e}")
+        return "Erro no banco de dados!", 500
 
-    query = '''
-        SELECT p.id AS parcela_id, t.id AS transacao_id, t.descricao, t.parcelas, p.numero, p.valor, 
-               p.data_vencimento, p.data_pagamento, part.nome AS participante_nome,
-               CASE 
-                   WHEN p.data_pagamento IS NOT NULL THEN 'recebidas'
-                   WHEN p.data_vencimento < ? THEN 'vencidas'
-                   ELSE 'a vencer'
-               END AS status
-        FROM parcelas p
-        JOIN transacoes t ON p.transacao_id = t.id
-        JOIN participantes part ON t.participante_id = part.id
-        WHERE 1=1
-    '''
-    params = [data_atual]
-
-    if busca:
-        query += ' AND (t.descricao LIKE ? OR part.nome LIKE ?)'
-        params.extend([f'%{busca}%', f'%{busca}%'])
-    if participante:
-        query += ' AND part.id = ?'
-        params.append(participante)
-    if status:
-        query += ' AND CASE WHEN p.data_pagamento IS NOT NULL THEN "recebidas" WHEN p.data_vencimento < ? THEN "vencidas" ELSE "a vencer" END = ?'
-        params.extend([data_atual, status])
-    if data_inicio:
-        query += ' AND p.data_vencimento >= ?'
-        params.append(data_inicio)
-
-    todas_parcelas = conn.execute(query, params).fetchall()
-    parcelas_a_vencer = [p for p in todas_parcelas if p['status'] == 'a vencer']
-    parcelas_vencidas = [p for p in todas_parcelas if p['status'] == 'vencidas']
-    parcelas_recebidas = [p for p in todas_parcelas if p['status'] == 'recebidas']
-
-    participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
-    conn.close()
-
-    return render_template('baixas.html', 
-                           parcelas_a_vencer=parcelas_a_vencer, 
-                           parcelas_vencidas=parcelas_vencidas, 
-                           parcelas_recebidas=parcelas_recebidas, 
-                           busca=busca, 
-                           participante=participante, 
-                           status=status, 
-                           data_inicio=data_inicio, 
-                           data_atual=data_atual, 
-                           participantes=participantes)
-    
-@app.route("/")
+# Rota home (substituída pelo index)
+@app.route("/home")
 def home():
     return "Meu app está online!"
-       
-    
+
 if __name__ == '__main__':
     init_db()
-    print("Endpoints registrados:", [rule.endpoint for rule in app.url_map.iter_rules()])  # Debug
+    print("Endpoints registrados:", [rule.endpoint for rule in app.url_map.iter_rules()])
     app.run(debug=True)

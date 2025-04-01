@@ -13,7 +13,8 @@
     <div class="container">
         <h1 class="my-4 text-center">Controle de Participantes</h1>
 
-        <!-- Formulário de Cadastro Manual -->
+        <!-- Formulário de Cadastro Manual (somente para ROOT) -->
+        {% if is_root %}
         <div class="card mb-4">
             <div class="card-header">
                 <i class="fas fa-user-plus me-2"></i>Novo Participante
@@ -43,7 +44,7 @@
             </div>
         </div>
 
-        <!-- Formulário de Importação de Excel -->
+        <!-- Formulário de Importação de Excel (somente para ROOT) -->
         <div class="card mb-4">
             <div class="card-header">
                 <i class="fas fa-file-excel me-2"></i>Importar Participantes
@@ -63,6 +64,7 @@
                 </form>
             </div>
         </div>
+        {% endif %}
 
         <!-- Lista de Participantes com Busca -->
         <h2 class="mt-4">Participantes Cadastrados</h2>
@@ -92,8 +94,10 @@
                         <td>{{ 'Sim' if p['crianca'] else 'Não' }}</td>
                         <td>{{ 'Sim' if p['bebe_alcool'] else 'Não' }}</td>
                         <td>
+                            {% if is_root %}
                             <a href="{{ url_for('editar_participante', id=p['id']) }}" class="btn btn-warning btn-sm action-btn"><i class="fas fa-edit"></i></a>
                             <a href="{{ url_for('excluir_participante', id=p['id']) }}" class="btn btn-danger btn-sm action-btn" onclick="return confirm('Tem certeza que deseja excluir este participante?')"><i class="fas fa-trash"></i></a>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
