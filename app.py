@@ -998,6 +998,11 @@ def baixas():
                            data_atual=data_atual, 
                            participantes=participantes)
     
+@app.route("/")
+def home():
+    return "Meu app está online!"
+       
+    
 if __name__ == '__main__':
     init_db()
     print("Endpoints registrados:", [rule.endpoint for rule in app.url_map.iter_rules()])  # Debug
