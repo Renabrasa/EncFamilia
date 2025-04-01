@@ -1,102 +1,220 @@
 <!DOCTYPE html>
 <html lang="pt-br">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Controle de Orçamentos</title>
+    <title>Orçamentos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        @media (max-width: 768px) {
+            .table-responsive {
+                font-size: 0.9rem;
+            }
+
+            .table th,
+            .table td {
+                padding: 0.5rem;
+            }
+
+            .hide-on-mobile {
+                display: none;
+            }
+        }
+
+        .btn {
+            width: 150px;
+            padding: 8px 12px;
+            font-size: 1rem;
+            border-radius: 6px;
+        }
+
+        .btn-sm {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            font-size: 0.9rem;
+            line-height: 40px;
+            border-radius: 6px;
+        }
+
+        @media (max-width: 768px) {
+            .btn {
+                width: 120px;
+                padding: 6px 10px;
+                font-size: 0.9rem;
+            }
+
+            .btn-sm {
+                width: 35px;
+                height: 35px;
+                line-height: 35px;
+            }
+        }
+    </style>
 </head>
+
 <body>
     <div class="container">
-        <h1 class="my-4 text-center">Controle de Orçamentos</h1>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show"
+            role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+        <h1 class="my-4 text-center">Orçamentos</h1>
+        
 
-        <!-- Formulário de Cadastro/Edição -->
-        <div class="card mb-4">
+        <!-- Botões de ação -->
+        <div class="mb-4 text-end">
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoOrcamentoModal">
+                <i class="fas fa-plus me-2"></i>Novo Orçamento
+            </button>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary ms-2">
+                <i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard
+            </a>
+        </div>
+
+        <!-- Tabela de Orçamentos -->
+        <div class="card">
             <div class="card-header">
-                <i class="fas fa-plus me-2"></i>{{ 'Editar Orçamento' if edit_orcamento else 'Novo Orçamento' }}
+                Lista de Orçamentos
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('editar_orcamento', id=edit_orcamento['id']) if edit_orcamento else url_for('controle_orcamentos') }}">
-                    <div class="mb-3">
-                        <label for="nome" class="form-label">Nome</label>
-                        <input type="text" class="form-control" id="nome" name="nome" value="{{ edit_orcamento['nome'] if edit_orcamento else '' }}" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="valor_previsto" class="form-label">Valor Previsto (R$)</label>
-                        <input type="number" step="0.01" class="form-control" id="valor_previsto" name="valor_previsto" value="{{ edit_orcamento['valor_previsto'] if edit_orcamento else '' }}" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="categoria" class="form-label">Categoria (opcional)</label>
-                        <input type="text" class="form-control" id="categoria" name="categoria" value="{{ edit_orcamento['categoria'] if edit_orcamento else '' }}">
-                    </div>
-                    <button type="submit" class="btn btn-success w-100">
-                        <i class="fas fa-save me-2"></i>{{ 'Salvar Alterações' if edit_orcamento else 'Cadastrar' }}
-                    </button>
-                </form>
+                <div class="table-responsive">
+                    <table class="table table-striped" id="orcamentos-table">
+                        <thead>
+                            <tr>
+                                <th>Descrição</th>
+                                <th>Valor Previsto</th>
+                                <th class="hide-on-mobile">Valor Real</th>
+                                <th class="hide-on-mobile">Categoria</th>
+                                <th class="hide-on-mobile">Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for orcamento in resumo_orcamentos %}
+                            <tr id="orcamento-{{ orcamento['id'] }}">
+                                <td>{{ orcamento['nome'] }}</td>
+                                <td>R$ {{ "%.2f" % orcamento['valor_previsto'] }}</td>
+                                <td class="hide-on-mobile">R$ {{ "%.2f" % orcamento['valor_real'] }}</td>
+                                <td class="hide-on-mobile">{{ orcamento['categoria'] or 'Sem categoria' }}</td>
+                                <td class="hide-on-mobile">
+                                    <span
+                                        class="badge {{ 'bg-success' if orcamento['status'] == 'Dentro do Orçamento' else 'bg-danger' }}">
+                                        {{ orcamento['status'] }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <a href="{{ url_for('editar_orcamento', id=orcamento['id']) }}"
+                                        class="btn btn-warning btn-sm">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <a href="{{ url_for('excluir_orcamento', id=orcamento['id']) }}"
+                                        class="btn btn-danger btn-sm"
+                                        onclick="return confirm('Tem certeza que deseja excluir este orçamento?')">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
-        <!-- Lista de Orçamentos -->
-        <h2 class="mt-4">Orçamentos Cadastrados</h2>
-        <div class="mb-3">
-            <label for="busca" class="form-label">Buscar Orçamento</label>
-            <div class="input-group">
-                <span class="input-group-text"><i class="fas fa-search"></i></span>
-                <input type="text" class="form-control" id="busca" placeholder="Digite o nome do orçamento">
+        <!-- Modal para Novo Orçamento -->
+        <div class="modal fade" id="novoOrcamentoModal" tabindex="-1" aria-labelledby="novoOrcamentoModalLabel"
+            aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="novoOrcamentoModalLabel">Novo Orçamento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST" action="{{ url_for('controle_orcamentos') }}">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="nome" class="form-label">Descrição</label>
+                                <input type="text" class="form-control" id="nome" name="nome" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="valor_previsto" class="form-label">Valor Previsto (R$)</label>
+                                <input type="number" step="0.01" class="form-control" id="valor_previsto"
+                                    name="valor_previsto" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="categoria" class="form-label">Categoria (opcional)</label>
+                                <input type="text" class="form-control" id="categoria" name="categoria">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Salvar</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
-        <div class="table-responsive mb-4">
-            <table class="table table-striped" id="tabela-orcamentos">
-                <thead>
-                    <tr>
-                        <th>Nome</th>
-                        <th>Valor Previsto</th>
-                        <th>Valor Real</th>
-                        <th>Categoria</th>
-                        <th>Status</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for o in resumo_orcamentos %}
-                    <tr>
-                        <td>{{ o['nome'] }}</td>
-                        <td>R$ {{ "%.2f" % o['valor_previsto'] }}</td>
-                        <td>R$ {{ "%.2f" % o['valor_real'] }}</td>
-                        <td>{{ o['categoria'] or '-' }}</td>
-                        <td class="{{ 'text-success' if o['status'] == 'Dentro do Orçamento' else 'text-danger' }}">{{ o['status'] }}</td>
-                        <td>
-                            <a href="{{ url_for('editar_orcamento', id=o['id']) }}" class="btn btn-warning btn-sm action-btn"><i class="fas fa-edit"></i></a>
-                            <a href="{{ url_for('excluir_orcamento', id=o['id']) }}" class="btn btn-danger btn-sm action-btn" onclick="return confirm('Tem certeza que deseja excluir este orçamento?')"><i class="fas fa-trash"></i></a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
 
-        <a href="{{ url_for('index') }}" class="btn btn-secondary w-100"><i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard</a>
+        <!-- Modal para Editar Orçamento -->
+        {% if edit_orcamento %}
+        <div class="modal fade" id="editOrcamentoModal" tabindex="-1" aria-labelledby="editOrcamentoModalLabel"
+            aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editOrcamentoModalLabel">Editar Orçamento</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
+                            onclick="window.location.href='{{ url_for('controle_orcamentos') }}'"></button>
+                    </div>
+                    <form method="POST" action="{{ url_for('editar_orcamento', id=edit_orcamento['id']) }}">
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label for="edit_nome" class="form-label">Descrição</label>
+                                <input type="text" class="form-control" id="edit_nome" name="nome"
+                                    value="{{ edit_orcamento['nome'] }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_valor_previsto" class="form-label">Valor Previsto (R$)</label>
+                                <input type="number" step="0.01" class="form-control" id="edit_valor_previsto"
+                                    name="valor_previsto" value="{{ edit_orcamento['valor_previsto'] }}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="edit_categoria" class="form-label">Categoria (opcional)</label>
+                                <input type="text" class="form-control" id="edit_categoria" name="categoria"
+                                    value="{{ edit_orcamento['categoria'] or '' }}">
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
+                                onclick="window.location.href='{{ url_for('controle_orcamentos') }}'">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Salvar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const editModal = new bootstrap.Modal(document.getElementById('editOrcamentoModal'));
+                editModal.show();
+            });
+        </script>
+        {% endif %}
     </div>
 
-    <!-- Script de Busca -->
-    <script>
-        document.getElementById('busca').addEventListener('keyup', function() {
-            const filtro = this.value.toLowerCase();
-            const tabela = document.getElementById('tabela-orcamentos');
-            const linhas = tabela.getElementsByTagName('tr');
-
-            for (let i = 1; i < linhas.length; i++) {
-                const nome = linhas[i].getElementsByTagName('td')[0].textContent.toLowerCase();
-                if (nome.includes(filtro)) {
-                    linhas[i].style.display = '';
-                } else {
-                    linhas[i].style.display = 'none';
-                }
-            }
-        });
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>

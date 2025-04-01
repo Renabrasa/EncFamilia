@@ -8,8 +8,39 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* Ajustes para responsividade */
+        @media (max-width: 768px) {
+            .table-responsive {
+                font-size: 0.9rem; /* Reduz o tamanho da fonte em telas pequenas */
+            }
+            .table th, .table td {
+                padding: 0.5rem; /* Menos espaço interno */
+            }
+            .btn-sm {
+                font-size: 0.8rem; /* Botões menores */
+                padding: 0.2rem 0.5rem;
+            }
+            .card-header form {
+                flex-direction: column; /* Busca empilhada em telas pequenas */
+                align-items: stretch;
+            }
+            .card-header .form-control {
+                margin-bottom: 0.5rem;
+            }
+            /* Esconde colunas menos importantes em telas pequenas */
+            .hide-on-mobile {
+                display: none;
+            }
+        }
+    </style>
 </head>
 <body>
+    <!-- Container para Toasts -->
+    <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
+        <div id="toastContainer"></div>
+    </div>
+
     <div class="container">
         <h1 class="my-4 text-center">Controle Financeiro</h1>
 
@@ -46,8 +77,8 @@
                                 <th>Descrição</th>
                                 <th>Participante</th>
                                 <th>Valor Total</th>
-                                <th>Parcelas</th>
-                                <th>Data 1ª Parcela</th>
+                                <th class="hide-on-mobile">Parcelas</th>
+                                <th class="hide-on-mobile">Data 1ª Parcela</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -58,8 +89,8 @@
                                 <td>{{ transacao['descricao'] }}</td>
                                 <td>{{ transacao['participante_nome'] }}</td>
                                 <td>R$ {{ "%.2f" % transacao['valor'] }}</td>
-                                <td>{{ transacao['parcelas'] }}</td>
-                                <td>{{ transacao['data_vencimento'] | replace('-', '/') }}</td>
+                                <td class="hide-on-mobile">{{ transacao['parcelas'] }}</td>
+                                <td class="hide-on-mobile">{{ transacao['data_vencimento'] | replace('-', '/') }}</td>
                                 <td>
                                     {% if is_root %}
                                     <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editTransacaoModal"
@@ -192,6 +223,25 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         {% if is_root %}
+        function showToast(message, type = 'success') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            `;
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            setTimeout(() => toast.remove(), 5000); // Remove após 5 segundos
+        }
+
         function cadastrarTransacao() {
             const form = document.getElementById('novaTransacaoForm');
             const formData = new FormData(form);
@@ -212,8 +262,8 @@
                         <td>${data.descricao}</td>
                         <td>${data.participante_nome}</td>
                         <td>R$ ${parseFloat(data.valor).toFixed(2)}</td>
-                        <td>${data.parcelas}</td>
-                        <td>${data.data_vencimento.replace(/-/g, '/')}</td>
+                        <td class="hide-on-mobile">${data.parcelas}</td>
+                        <td class="hide-on-mobile">${data.data_vencimento.replace(/-/g, '/')}</td>
                         <td>
                             <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editTransacaoModal"
                                     onclick="setEditTransacaoModal('${data.transacao_id}', '${data.tipo}', '${data.descricao}', '${data.participante_id}', '${data.valor}', '${data.parcelas}', '${data.data_vencimento}')">
@@ -232,11 +282,15 @@
                     const modal = bootstrap.Modal.getInstance(document.getElementById('novaTransacaoModal'));
                     modal.hide();
                     form.reset();
+                    showToast('Transação cadastrada com sucesso!', 'success');
                 } else {
-                    alert('Erro ao cadastrar: ' + data.error);
+                    showToast('Erro ao cadastrar: ' + data.error, 'danger');
                 }
             })
-            .catch(error => console.error('Erro na requisição:', error));
+            .catch(error => {
+                console.error('Erro na requisição:', error);
+                showToast('Erro ao cadastrar a transação.', 'danger');
+            });
         }
 
         function setEditTransacaoModal(id, tipo, descricao, participante_id, valor, parcelas, data_vencimento) {
@@ -250,5 +304,5 @@
         }
         {% endif %}
     </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'92991c3979f653f9',t:'MTc0MzUyMTI0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>

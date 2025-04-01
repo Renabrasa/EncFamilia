@@ -13,7 +13,7 @@ from io import BytesIO
 from functools import wraps
 
 app = Flask(__name__)
-app.secret_key = 'sua_chave_secreta_aqui'  # Troque por algo único e seguro (ex.: 'xyz123abc')
+app.secret_key = '241286'  # Troque por algo único e seguro (ex.: 'xyz123abc')
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
@@ -904,101 +904,122 @@ def gerar_excel():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+def calcular_resumo_orcamentos(orcamentos):
+    conn = get_db_connection()
+    resumo = []
+    try:
+        for orcamento in orcamentos:
+            valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (orcamento['id'],)).fetchone()[0] or 0
+            status = 'Dentro do Orçamento' if valor_real <= orcamento['valor_previsto'] else 'Fora do Orçamento'
+            resumo.append({
+                'id': orcamento['id'],
+                'nome': orcamento['nome'],
+                'valor_previsto': orcamento['valor_previsto'],
+                'valor_real': valor_real,
+                'categoria': orcamento['categoria'],
+                'status': status
+            })
+        conn.close()
+        return resumo
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Erro em calcular_resumo_orcamentos: {e}")
+        conn.close()
+        return []
+
+
+
 # Controle de orçamentos
+from flask import request, redirect, url_for, render_template, flash, session
+
 @app.route('/orcamentos', methods=['GET', 'POST'])
 @login_required
 def controle_orcamentos():
-    with get_db_connection() as conn:
-        try:
-            if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode criar
-                    return "Permissão negada: apenas administradores podem criar orçamentos.", 403
-                nome = request.form['nome']
-                valor_previsto = float(request.form['valor_previsto'])
-                categoria = request.form.get('categoria', '')
-                
-                conn.execute('INSERT INTO orcamentos (nome, valor_previsto, categoria) VALUES (?, ?, ?)',
-                             (nome, valor_previsto, categoria))
-                conn.commit()
-            
-            orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
-            resumo_orcamentos = []
-            for orcamento in orcamentos:
-                valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (orcamento['id'],)).fetchone()[0] or 0
-                status = "Dentro do Orçamento" if valor_real <= orcamento['valor_previsto'] else "Excedido"
-                resumo_orcamentos.append({
-                    'id': orcamento['id'],
-                    'nome': orcamento['nome'],
-                    'valor_previsto': orcamento['valor_previsto'],
-                    'valor_real': valor_real,
-                    'categoria': orcamento['categoria'],
-                    'status': status
-                })
-            
-            return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, is_root=session.get('is_root', False))
-        except sqlite3.Error as e:
-            conn.rollback()
-            logger.error(f"Erro em orcamentos: {e}")
-            return "Erro no banco de dados!", 500
+    conn = get_db_connection()
+    try:
+        if request.method == 'POST':
+            nome = request.form['nome']
+            valor_previsto = float(request.form['valor_previsto'])
+            categoria = request.form.get('categoria', '')
+            conn.execute('INSERT INTO orcamentos (nome, valor_previsto, categoria) VALUES (?, ?, ?)',
+                         (nome, valor_previsto, categoria))
+            conn.commit()
+            flash('Orçamento cadastrado com sucesso!', 'success')
+            return redirect(url_for('controle_orcamentos'))
 
-# Editar orçamento
+        orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
+        resumo_orcamentos = calcular_resumo_orcamentos(orcamentos)
+        conn.close()
+        return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, is_root=session.get('is_root', False))
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Erro em controle_orcamentos: {e}")
+        conn.close()
+        return "Erro no banco de dados!", 500
+
+# editar_orçamentos
+from flask import request, redirect, url_for, render_template, flash, session
+
 @app.route('/editar_orcamento/<int:id>', methods=['GET', 'POST'])
 @login_required
 def editar_orcamento(id):
-    with get_db_connection() as conn:
-        try:
-            orcamento = conn.execute('SELECT * FROM orcamentos WHERE id = ?', (id,)).fetchone()
-            if not orcamento:
-                return "Orçamento não encontrado!", 404
+    conn = get_db_connection()
+    try:
+        orcamento = conn.execute('SELECT * FROM orcamentos WHERE id = ?', (id,)).fetchone()
+        if not orcamento:
+            conn.close()
+            return "Orçamento não encontrado!", 404
 
-            if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode editar
-                    return "Permissão negada: apenas administradores podem editar orçamentos.", 403
-                nome = request.form['nome']
-                valor_previsto = float(request.form['valor_previsto'])
-                categoria = request.form.get('categoria', '')
-                
-                conn.execute('UPDATE orcamentos SET nome = ?, valor_previsto = ?, categoria = ? WHERE id = ?',
-                             (nome, valor_previsto, categoria, id))
-                conn.commit()
-                return redirect(url_for('controle_orcamentos'))
+        if request.method == 'POST':
+            nome = request.form['nome']
+            valor_previsto = float(request.form['valor_previsto'])
+            categoria = request.form.get('categoria', '')
+            conn.execute('UPDATE orcamentos SET nome = ?, valor_previsto = ?, categoria = ? WHERE id = ?',
+                         (nome, valor_previsto, categoria, id))
+            conn.commit()
+            flash('Orçamento editado com sucesso!', 'success')
+            conn.close()
+            return redirect(url_for('controle_orcamentos'))
 
-            orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
-            resumo_orcamentos = []
-            for o in orcamentos:
-                valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (o['id'],)).fetchone()[0] or 0
-                status = "Dentro do Orçamento" if valor_real <= o['valor_previsto'] else "Excedido"
-                resumo_orcamentos.append({
-                    'id': o['id'],
-                    'nome': o['nome'],
-                    'valor_previsto': o['valor_previsto'],
-                    'valor_real': valor_real,
-                    'categoria': o['categoria'],
-                    'status': status
-                })
-            
-            return render_template('orcamentos.html', resumo_orcamentos=resumo_orcamentos, edit_orcamento=orcamento, is_root=session.get('is_root', False))
-        except sqlite3.Error as e:
-            conn.rollback()
-            logger.error(f"Erro em editar_orcamento: {e}")
-            return "Erro no banco de dados!", 500
+        orcamentos = conn.execute('SELECT * FROM orcamentos').fetchall()
+        resumo_orcamentos = calcular_resumo_orcamentos(orcamentos)
+        conn.close()
+        return render_template('orcamentos.html', edit_orcamento=orcamento, resumo_orcamentos=resumo_orcamentos, is_root=session.get('is_root', False))
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Erro em editar_orcamento: {e}")
+        conn.close()
+        return "Erro no banco de dados!", 500
 
-# Excluir orçamento
+from flask import request, redirect, url_for, render_template, flash, session
+
 @app.route('/excluir_orcamento/<int:id>')
 @login_required
 def excluir_orcamento(id):
-    if not session.get('is_root'):  # Apenas ROOT pode excluir
-        return "Permissão negada: apenas administradores podem excluir orçamentos.", 403
+    if not session.get('is_root'):
+        flash('Permissão negada: apenas administradores podem excluir orçamentos.', 'error')
+        return redirect(url_for('controle_orcamentos'))
     
-    with get_db_connection() as conn:
-        try:
-            conn.execute('DELETE FROM orcamentos WHERE id = ?', (id,))
-            conn.commit()
+    conn = get_db_connection()
+    try:
+        orcamento = conn.execute('SELECT * FROM orcamentos WHERE id = ?', (id,)).fetchone()
+        if not orcamento:
+            conn.close()
+            flash('Orçamento não encontrado!', 'error')
             return redirect(url_for('controle_orcamentos'))
-        except sqlite3.Error as e:
-            conn.rollback()
-            logger.error(f"Erro em excluir_orcamento: {e}")
-            return "Erro no banco de dados!", 500
+        
+        conn.execute('DELETE FROM orcamentos WHERE id = ?', (id,))
+        conn.commit()
+        flash('Orçamento excluído com sucesso!', 'success')
+        conn.close()
+        return redirect(url_for('controle_orcamentos'))
+    except sqlite3.Error as e:
+        conn.rollback()
+        logger.error(f"Erro em excluir_orcamento: {e}")
+        conn.close()
+        flash('Erro ao excluir o orçamento devido a um problema no banco de dados!', 'error')
+        return redirect(url_for('controle_orcamentos'))
+
 
 # Gerenciar baixas
 @app.route('/baixas', methods=['GET', 'POST'])

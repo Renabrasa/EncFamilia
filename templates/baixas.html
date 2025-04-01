@@ -3,428 +3,305 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerenciar Baixas de Parcelas</title>
+    <title>Baixas</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        @media (max-width: 768px) {
+            .table-responsive { font-size: 0.9rem; }
+            .table th, .table td { padding: 0.5rem; }
+            .nav-tabs { flex-direction: column; }
+            .nav-tabs .nav-link { margin-bottom: 0.5rem; }
+            .hide-on-mobile { display: none; }
+        }
+        /* Estilo dos botões */
+        .btn {
+            width: 150px; /* Largura fixa para botões normais */
+            padding: 8px 12px; /* Padding uniforme */
+            font-size: 1rem; /* Tamanho da fonte */
+            border-radius: 6px; /* Bordas arredondadas */
+        }
+        .btn-sm {
+            width: 40px; /* Largura fixa para botões pequenos */
+            height: 40px; /* Altura fixa para uniformidade */
+            padding: 0; /* Remove padding interno */
+            font-size: 0.9rem; /* Tamanho da fonte reduzido */
+            line-height: 40px; /* Centraliza o ícone verticalmente */
+            border-radius: 6px; /* Bordas arredondadas */
+        }
+        @media (max-width: 768px) {
+            .btn {
+                width: 120px; /* Reduz a largura em telas menores */
+                padding: 6px 10px; /* Padding ajustado */
+                font-size: 0.9rem; /* Fonte menor */
+            }
+            .btn-sm {
+                width: 35px; /* Reduz ainda mais os pequenos */
+                height: 35px;
+                line-height: 35px;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <h1 class="my-4 text-center">Gerenciar Baixas de Parcelas</h1>
+    <!-- Container para Toasts -->
+    <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
+        <div id="toastContainer"></div>
+    </div>
 
-        <!-- Filtros Avançados -->
+    <div class="container">
+        <h1 class="my-4 text-center">Baixas</h1>
+
+        <!-- Botões de ação -->
+        <div class="mb-4 text-end">
+            <a href="{{ url_for('controle_financeiro') }}" class="btn btn-info">
+                <i class="fas fa-money-bill-wave me-2"></i>Financeiro
+            </a>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary ms-2">
+                <i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard
+            </a>
+        </div>
+
+        <!-- Filtros -->
         <div class="card mb-4">
-            <div class="card-header">Filtros</div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('baixas') }}" class="row g-3" id="filterForm">
-                    <div class="col-md-4">
-                        <input type="text" class="form-control" name="busca" placeholder="Descrição ou Participante" value="{{ busca }}">
+                <form method="GET" action="{{ url_for('baixas') }}">
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <input type="text" class="form-control" name="busca" placeholder="Pesquisar por descrição" value="{{ busca }}">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <select class="form-control" name="participante">
+                                <option value="">Todos os Participantes</option>
+                                {% for p in participantes %}
+                                <option value="{{ p['id'] }}" {{ 'selected' if p['id']|string == participante else '' }}>
+                                    {{ p['nome'] }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <select class="form-control" name="status">
+                                <option value="">Todos os Status</option>
+                                <option value="a vencer" {{ 'selected' if status == 'a vencer' else '' }}>A Vencer</option>
+                                <option value="vencidas" {{ 'selected' if status == 'vencidas' else '' }}>Vencidas</option>
+                                <option value="recebidas" {{ 'selected' if status == 'recebidas' else '' }}>Recebidas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <input type="date" class="form-control" name="data_inicio" value="{{ data_inicio }}">
+                        </div>
                     </div>
-                    <div class="col-md-3">
-                        <select class="form-control" name="participante">
-                            <option value="">Todos os Participantes</option>
-                            {% for p in participantes %}
-                                <option value="{{ p['id'] }}" {% if participante == p['id']|string %}selected{% endif %}>{{ p['nome'] }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <select class="form-control" name="status">
-                            <option value="">Todos os Status</option>
-                            <option value="a vencer" {% if status == 'a vencer' %}selected{% endif %}>A Vencer</option>
-                            <option value="vencidas" {% if status == 'vencidas' %}selected{% endif %}>Vencidas</option>
-                            <option value="recebidas" {% if status == 'recebidas' %}selected{% endif %}>Recebidas</option>
-                        </select>
-                    </div>
-                    <div class="col-md-2">
-                        <input type="date" class="form-control" name="data_inicio" value="{{ data_inicio }}">
-                    </div>
-                    <div class="col-md-1">
-                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-search"></i></button>
-                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
                 </form>
             </div>
         </div>
 
-        <!-- Abas para Parcelas -->
-        <ul class="nav nav-tabs mb-4" id="parcelasTab" role="tablist">
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="a-vencer-tab" data-bs-toggle="tab" data-bs-target="#a-vencer" type="button" role="tab">A Vencer (<span id="a-vencer-count">{{ parcelas_a_vencer|length }}</span>)</button>
+        <!-- Abas -->
+        <ul class="nav nav-tabs" id="baixasTab" role="tablist">
+            <li class="nav-item">
+                <button class="nav-link {{ 'active' if not status or status == 'a vencer' else '' }}" id="a-vencer-tab" data-bs-toggle="tab" data-bs-target="#a-vencer" type="button" role="tab" aria-controls="a-vencer" aria-selected="true">A Vencer</button>
             </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="vencidas-tab" data-bs-toggle="tab" data-bs-target="#vencidas" type="button" role="tab">Vencidas (<span id="vencidas-count">{{ parcelas_vencidas|length }}</span>)</button>
+            <li class="nav-item">
+                <button class="nav-link {{ 'active' if status == 'vencidas' else '' }}" id="vencidas-tab" data-bs-toggle="tab" data-bs-target="#vencidas" type="button" role="tab" aria-controls="vencidas" aria-selected="false">Vencidas</button>
             </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="recebidas-tab" data-bs-toggle="tab" data-bs-target="#recebidas" type="button" role="tab">Recebidas (<span id="recebidas-count">{{ parcelas_recebidas|length }}</span>)</button>
+            <li class="nav-item">
+                <button class="nav-link {{ 'active' if status == 'recebidas' else '' }}" id="recebidas-tab" data-bs-toggle="tab" data-bs-target="#recebidas" type="button" role="tab" aria-controls="recebidas" aria-selected="false">Recebidas</button>
             </li>
         </ul>
 
-        <div class="tab-content" id="parcelasTabContent">
-            <!-- A Vencer -->
-            <div class="tab-pane fade show active" id="a-vencer" role="tabpanel">
-                <div class="table-responsive">
-                    <table class="table table-striped" id="a-vencer-table">
-                        <thead>
-                            <tr>
-                                <th>Descrição</th>
-                                <th>Participante</th>
-                                <th>Parcela</th>
-                                <th>Valor</th>
-                                <th>Data de Vencimento</th>
-                                <th>Status</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for parcela in parcelas_a_vencer %}
-                            <tr id="parcela-{{ parcela['parcela_id'] }}">
-                                <td>{{ parcela['descricao'] }}</td>
-                                <td>{{ parcela['participante_nome'] }}</td>
-                                <td>{{ parcela['numero'] }}</td>
-                                <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
-                                <td>{{ parcela['data_vencimento'] | replace('-', '/') }}</td>
-                                <td class="text-warning">{{ parcela['status'] | capitalize }}</td>
-                                <td>
-                                    {% if is_root %}
-                                    <div class="input-group input-group-sm mb-1">
-                                        <input type="date" class="form-control" id="data-pagamento-{{ parcela['parcela_id'] }}" value="{{ data_atual }}">
-                                        <button class="btn btn-success btn-sm" onclick="darBaixa('{{ parcela['parcela_id'] }}')">
-                                            <i class="fas fa-check me-1"></i>Dar Baixa
-                                        </button>
-                                    </div>
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editParcelaModal" 
-                                            onclick="setEditParcelaModal('{{ parcela['parcela_id'] }}', '{{ parcela['valor'] }}', '{{ parcela['data_vencimento'] }}')">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_parcela">
-                                        <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </form>
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editModal" 
-                                            onclick="setEditModal('{{ parcela['transacao_id'] }}', '{{ parcela['numero'] | get_total_parcelas(transacao_id=parcela['transacao_id']) }}')">
-                                        <i class="fas fa-cogs"></i> Parcelas
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_transacao">
-                                        <input type="hidden" name="transacao_id" value="{{ parcela['transacao_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta transação?')">
-                                            <i class="fas fa-trash-alt"></i> Transação
-                                        </button>
-                                    </form>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Vencidas -->
-            <div class="tab-pane fade" id="vencidas" role="tabpanel">
-                <div class="table-responsive">
-                    <table class="table table-striped" id="vencidas-table">
-                        <thead>
-                            <tr>
-                                <th>Descrição</th>
-                                <th>Participante</th>
-                                <th>Parcela</th>
-                                <th>Valor</th>
-                                <th>Data de Vencimento</th>
-                                <th>Status</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for parcela in parcelas_vencidas %}
-                            <tr id="parcela-{{ parcela['parcela_id'] }}">
-                                <td>{{ parcela['descricao'] }}</td>
-                                <td>{{ parcela['participante_nome'] }}</td>
-                                <td>{{ parcela['numero'] }}</td>
-                                <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
-                                <td>{{ parcela['data_vencimento'] | replace('-', '/') }}</td>
-                                <td class="text-danger">{{ parcela['status'] | capitalize }}</td>
-                                <td>
-                                    {% if is_root %}
-                                    <div class="input-group input-group-sm mb-1">
-                                        <input type="date" class="form-control" id="data-pagamento-{{ parcela['parcela_id'] }}" value="{{ data_atual }}">
-                                        <button class="btn btn-success btn-sm" onclick="darBaixa('{{ parcela['parcela_id'] }}')">
-                                            <i class="fas fa-check me-1"></i>Dar Baixa
-                                        </button>
-                                    </div>
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editParcelaModal" 
-                                            onclick="setEditParcelaModal('{{ parcela['parcela_id'] }}', '{{ parcela['valor'] }}', '{{ parcela['data_vencimento'] }}')">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_parcela">
-                                        <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </form>
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editModal" 
-                                            onclick="setEditModal('{{ parcela['transacao_id'] }}', '{{ parcela['numero'] | get_total_parcelas(transacao_id=parcela['transacao_id']) }}')">
-                                        <i class="fas fa-cogs"></i> Parcelas
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_transacao">
-                                        <input type="hidden" name="transacao_id" value="{{ parcela['transacao_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta transação?')">
-                                            <i class="fas fa-trash-alt"></i> Transação
-                                        </button>
-                                    </form>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Recebidas -->
-            <div class="tab-pane fade" id="recebidas" role="tabpanel">
-                <div class="table-responsive">
-                    <table class="table table-striped" id="recebidas-table">
-                        <thead>
-                            <tr>
-                                <th>Descrição</th>
-                                <th>Participante</th>
-                                <th>Parcela</th>
-                                <th>Valor</th>
-                                <th>Data de Vencimento</th>
-                                <th>Data de Pagamento</th>
-                                <th>Status</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for parcela in parcelas_recebidas %}
-                            <tr id="parcela-{{ parcela['parcela_id'] }}">
-                                <td>{{ parcela['descricao'] }}</td>
-                                <td>{{ parcela['participante_nome'] }}</td>
-                                <td>{{ parcela['numero'] }}</td>
-                                <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
-                                <td>{{ parcela['data_vencimento'] | replace('-', '/') }}</td>
-                                <td>{{ parcela['data_pagamento'] | replace('-', '/') }}</td>
-                                <td class="text-success">{{ parcela['status'] | capitalize }}</td>
-                                <td>
-                                    {% if is_root %}
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editBaixaModal" 
-                                            onclick="setEditBaixaModal('{{ parcela['parcela_id'] }}', '{{ parcela['data_pagamento'] }}')">
-                                        <i class="fas fa-edit"></i> Baixa
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_baixa">
-                                        <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja desfazer esta baixa?')">
-                                            <i class="fas fa-undo"></i>
-                                        </button>
-                                    </form>
-                                    <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editModal" 
-                                            onclick="setEditModal('{{ parcela['transacao_id'] }}', '{{ parcela['numero'] | get_total_parcelas(transacao_id=parcela['transacao_id']) }}')">
-                                        <i class="fas fa-cogs"></i> Parcelas
-                                    </button>
-                                    <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                                        <input type="hidden" name="action" value="excluir_transacao">
-                                        <input type="hidden" name="transacao_id" value="{{ parcela['transacao_id'] }}">
-                                        <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta transação?')">
-                                            <i class="fas fa-trash-alt"></i> Transação
-                                        </button>
-                                    </form>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modais (somente para ROOT) -->
-        {% if is_root %}
-        <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="editModalLabel">Editar Quantidade de Parcelas</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <!-- Conteúdo das Abas -->
+        <div class="tab-content" id="baixasTabContent">
+            <div class="tab-pane fade {{ 'show active' if not status or status == 'a vencer' else '' }}" id="a-vencer" role="tabpanel" aria-labelledby="a-vencer-tab">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Descrição</th>
+                                        <th>Participante</th>
+                                        <th>Valor</th>
+                                        <th class="hide-on-mobile">Parcela</th>
+                                        <th class="hide-on-mobile">Data Vencimento</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for parcela in parcelas_a_vencer %}
+                                    <tr id="parcela-{{ parcela['parcela_id'] }}">
+                                        <td>{{ parcela['descricao'] }}</td>
+                                        <td>{{ parcela['participante_nome'] }}</td>
+                                        <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['numero'] }}/{{ parcela['parcelas'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_vencimento']|replace('-', '/') }}</td>
+                                        <td>
+                                            {% if is_root %}
+                                            <button class="btn btn-success btn-sm" onclick="darBaixa('{{ parcela['parcela_id'] }}')">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
+                                                <input type="hidden" name="action" value="excluir_parcela">
+                                                <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <form method="POST" action="{{ url_for('baixas') }}">
-                        <div class="modal-body">
-                            <input type="hidden" name="action" value="editar_parcelas">
-                            <input type="hidden" name="transacao_id" id="edit_transacao_id">
-                            <div class="mb-3">
-                                <label for="novas_parcelas" class="form-label">Nova Quantidade de Parcelas</label>
-                                <input type="number" class="form-control" id="novas_parcelas" name="novas_parcelas" min="1" required>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                            <button type="submit" class="btn btn-primary">Salvar</button>
-                        </div>
-                    </form>
                 </div>
             </div>
-        </div>
 
-        <div class="modal fade" id="editParcelaModal" tabindex="-1" aria-labelledby="editParcelaModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="editParcelaModalLabel">Editar Parcela</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <div class="tab-pane fade {{ 'show active' if status == 'vencidas' else '' }}" id="vencidas" role="tabpanel" aria-labelledby="vencidas-tab">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Descrição</th>
+                                        <th>Participante</th>
+                                        <th>Valor</th>
+                                        <th class="hide-on-mobile">Parcela</th>
+                                        <th class="hide-on-mobile">Data Vencimento</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for parcela in parcelas_vencidas %}
+                                    <tr id="parcela-{{ parcela['parcela_id'] }}">
+                                        <td>{{ parcela['descricao'] }}</td>
+                                        <td>{{ parcela['participante_nome'] }}</td>
+                                        <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['numero'] }}/{{ parcela['parcelas'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_vencimento']|replace('-', '/') }}</td>
+                                        <td>
+                                            {% if is_root %}
+                                            <button class="btn btn-success btn-sm" onclick="darBaixa('{{ parcela['parcela_id'] }}')">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
+                                                <input type="hidden" name="action" value="excluir_parcela">
+                                                <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <form method="POST" action="{{ url_for('baixas') }}">
-                        <div class="modal-body">
-                            <input type="hidden" name="action" value="editar_parcela">
-                            <input type="hidden" name="parcela_id" id="edit_parcela_id">
-                            <div class="mb-3">
-                                <label for="valor" class="form-label">Valor (R$)</label>
-                                <input type="number" step="0.01" class="form-control" id="edit_valor" name="valor" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="data_vencimento" class="form-label">Data de Vencimento</label>
-                                <input type="date" class="form-control" id="edit_data_vencimento" name="data_vencimento" required>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                            <button type="submit" class="btn btn-primary">Salvar</button>
-                        </div>
-                    </form>
                 </div>
             </div>
-        </div>
 
-        <div class="modal fade" id="editBaixaModal" tabindex="-1" aria-labelledby="editBaixaModalLabel" aria-hidden="true">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="editBaixaModalLabel">Editar Data de Pagamento</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <div class="tab-pane fade {{ 'show active' if status == 'recebidas' else '' }}" id="recebidas" role="tabpanel" aria-labelledby="recebidas-tab">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Descrição</th>
+                                        <th>Participante</th>
+                                        <th>Valor</th>
+                                        <th class="hide-on-mobile">Parcela</th>
+                                        <th class="hide-on-mobile">Data Vencimento</th>
+                                        <th class="hide-on-mobile">Data Pagamento</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for parcela in parcelas_recebidas %}
+                                    <tr id="parcela-{{ parcela['parcela_id'] }}">
+                                        <td>{{ parcela['descricao'] }}</td>
+                                        <td>{{ parcela['participante_nome'] }}</td>
+                                        <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['numero'] }}/{{ parcela['parcelas'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_vencimento']|replace('-', '/') }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_pagamento']|replace('-', '/') }}</td>
+                                        <td>
+                                            {% if is_root %}
+                                            <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
+                                                <input type="hidden" name="action" value="excluir_parcela">
+                                                <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                    <form method="POST" action="{{ url_for('baixas') }}">
-                        <div class="modal-body">
-                            <input type="hidden" name="action" value="editar_baixa">
-                            <input type="hidden" name="parcela_id" id="edit_baixa_parcela_id">
-                            <div class="mb-3">
-                                <label for="data_pagamento" class="form-label">Data de Pagamento</label>
-                                <input type="date" class="form-control" id="edit_data_pagamento" name="data_pagamento" required>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                            <button type="submit" class="btn btn-primary">Salvar</button>
-                        </div>
-                    </form>
                 </div>
             </div>
         </div>
-        {% endif %}
-
-        <a href="{{ url_for('controle_financeiro') }}" class="btn btn-secondary w-100 mt-4">
-            <i class="fas fa-arrow-left me-2"></i>Voltar ao Financeiro
-        </a>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         {% if is_root %}
+        function showToast(message, type = 'success') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            `;
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            setTimeout(() => toast.remove(), 5000);
+        }
+
         function darBaixa(parcelaId) {
-            const dataPagamento = document.getElementById(`data-pagamento-${parcelaId}`).value;
-            fetch('/baixas', {
+            const dataPagamento = prompt("Informe a data de pagamento (YYYY-MM-DD):", new Date().toISOString().split('T')[0]);
+            if (!dataPagamento) return;
+
+            const formData = new FormData();
+            formData.append('action', 'dar_baixa');
+            formData.append('parcela_id', parcelaId);
+            formData.append('data_pagamento', dataPagamento);
+
+            fetch('{{ url_for("baixas") }}', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `action=dar_baixa&parcela_id=${parcelaId}&data_pagamento=${dataPagamento}`
+                body: formData
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     const row = document.getElementById(`parcela-${parcelaId}`);
-                    const recebidasTable = document.getElementById('recebidas-table').querySelector('tbody');
-                    const newRow = row.cloneNode(true);
-                    
-                    newRow.cells[5].innerHTML = data.data_pagamento.replace(/-/g, '/');
-                    newRow.cells[5].className = 'text-success';
-                    newRow.cells[5].textContent = 'Recebidas';
-                    newRow.cells[6].innerHTML = `
-                        <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editBaixaModal" 
-                                onclick="setEditBaixaModal('${parcelaId}', '${data.data_pagamento}')">
-                            <i class="fas fa-edit"></i> Baixa
-                        </button>
-                        <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                            <input type="hidden" name="action" value="excluir_baixa">
-                            <input type="hidden" name="parcela_id" value="${parcelaId}">
-                            <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja desfazer esta baixa?')">
-                                <i class="fas fa-undo"></i>
-                            </button>
-                        </form>
-                        <button class="btn btn-warning btn-sm mb-1" data-bs-toggle="modal" data-bs-target="#editModal" 
-                                onclick="setEditModal('${data.transacao_id}', '${data.total_parcelas}')">
-                            <i class="fas fa-cogs"></i> Parcelas
-                        </button>
-                        <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
-                            <input type="hidden" name="action" value="excluir_transacao">
-                            <input type="hidden" name="transacao_id" value="${data.transacao_id}">
-                            <button type="submit" class="btn btn-danger btn-sm mb-1" onclick="return confirm('Tem certeza que deseja excluir esta transação?')">
-                                <i class="fas fa-trash-alt"></i> Transação
-                            </button>
-                        </form>
-                    `;
-                    
-                    recebidasTable.appendChild(newRow);
                     row.remove();
-
-                    document.getElementById('a-vencer-count').textContent = document.getElementById('a-vencer-table').querySelectorAll('tbody tr').length;
-                    document.getElementById('vencidas-count').textContent = document.getElementById('vencidas-table').querySelectorAll('tbody tr').length;
-                    document.getElementById('recebidas-count').textContent = document.getElementById('recebidas-table').querySelectorAll('tbody tr').length;
+                    showToast('Parcela recebida com sucesso!', 'success');
                 } else {
-                    alert('Erro ao dar baixa: ' + data.error);
+                    showToast('Erro ao dar baixa: ' + data.error, 'danger');
                 }
             })
-            .catch(error => console.error('Erro na requisição:', error));
-        }
-
-        function setEditModal(transacao_id, total_parcelas) {
-            const transacaoIdField = document.getElementById('edit_transacao_id');
-            const novasParcelasField = document.getElementById('novas_parcelas');
-            if (transacaoIdField && novasParcelasField) {
-                transacaoIdField.value = transacao_id;
-                novasParcelasField.value = total_parcelas;
-            } else {
-                console.error('Erro: Campos do modal de edição de parcelas não encontrados.');
-            }
-        }
-
-        function setEditParcelaModal(parcela_id, valor, data_vencimento) {
-            const parcelaIdField = document.getElementById('edit_parcela_id');
-            const valorField = document.getElementById('edit_valor');
-            const dataVencimentoField = document.getElementById('edit_data_vencimento');
-            if (parcelaIdField && valorField && dataVencimentoField) {
-                parcelaIdField.value = parcela_id;
-                valorField.value = valor;
-                dataVencimentoField.value = data_vencimento;
-            } else {
-                console.error('Erro: Campos do modal de edição de parcela não encontrados.');
-            }
-        }
-
-        function setEditBaixaModal(parcela_id, data_pagamento) {
-            const parcelaIdField = document.getElementById('edit_baixa_parcela_id');
-            const dataPagamentoField = document.getElementById('edit_data_pagamento');
-            if (parcelaIdField && dataPagamentoField) {
-                parcelaIdField.value = parcela_id;
-                dataPagamentoField.value = data_pagamento;
-            } else {
-                console.error('Erro: Campos do modal de edição de baixa não encontrados.');
-            }
+            .catch(error => {
+                console.error('Erro na requisição:', error);
+                showToast('Erro ao dar baixa na parcela.', 'danger');
+            });
         }
         {% endif %}
     </script>
