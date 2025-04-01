@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Participantes</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4 text-center">Controle de Participantes</h1>
+
+        <!-- Formulário de Cadastro Manual -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-user-plus me-2"></i>Novo Participante
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('controle_participantes') }}">
+                    <div class="mb-3">
+                        <label for="nome" class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="nome" name="nome" value="{{ edit_participante['nome'] if edit_participante else '' }}" required>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="adulto" name="adulto" {{ 'checked' if edit_participante and edit_participante['adulto'] else '' }}>
+                        <label class="form-check-label" for="adulto">Adulto</label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="crianca" name="crianca" {{ 'checked' if edit_participante and edit_participante['crianca'] else '' }}>
+                        <label class="form-check-label" for="crianca">Criança</label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" class="form-check-input" id="bebe_alcool" name="bebe_alcool" {{ 'checked' if edit_participante and edit_participante['bebe_alcool'] else '' }}>
+                        <label class="form-check-label" for="bebe_alcool">Bebe Álcool</label>
+                    </div>
+                    <button type="submit" class="btn btn-success w-100">
+                        <i class="fas fa-save me-2"></i>{{ 'Salvar Alterações' if edit_participante else 'Cadastrar' }}
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Formulário de Importação de Excel -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-file-excel me-2"></i>Importar Participantes
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('importar_participantes') }}" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="arquivo_excel" class="form-label">Selecione um arquivo Excel</label>
+                        <input type="file" class="form-control" id="arquivo_excel" name="arquivo_excel" accept=".xlsx" required>
+                        <small class="form-text text-muted">
+                            O arquivo deve conter as colunas: "Nome", "Adulto" (1 ou 0), "Criança" (1 ou 0), "Bebe Álcool" (1 ou 0).
+                        </small>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-upload me-2"></i>Importar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Lista de Participantes com Busca -->
+        <h2 class="mt-4">Participantes Cadastrados</h2>
+        <div class="mb-3">
+            <label for="busca" class="form-label">Buscar Participante</label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" class="form-control" id="busca" placeholder="Digite o nome do participante">
+            </div>
+        </div>
+        <div class="table-responsive mb-4">
+            <table class="table table-striped" id="tabela-participantes">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Adulto</th>
+                        <th>Criança</th>
+                        <th>Bebe Álcool</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in participantes %}
+                    <tr>
+                        <td>{{ p['nome'] }}</td>
+                        <td>{{ 'Sim' if p['adulto'] else 'Não' }}</td>
+                        <td>{{ 'Sim' if p['crianca'] else 'Não' }}</td>
+                        <td>{{ 'Sim' if p['bebe_alcool'] else 'Não' }}</td>
+                        <td>
+                            <a href="{{ url_for('editar_participante', id=p['id']) }}" class="btn btn-warning btn-sm action-btn"><i class="fas fa-edit"></i></a>
+                            <a href="{{ url_for('excluir_participante', id=p['id']) }}" class="btn btn-danger btn-sm action-btn" onclick="return confirm('Tem certeza que deseja excluir este participante?')"><i class="fas fa-trash"></i></a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <a href="{{ url_for('index') }}" class="btn btn-secondary w-100"><i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard</a>
+    </div>
+
+    <!-- Script de Busca -->
+    <script>
+        document.getElementById('busca').addEventListener('keyup', function() {
+            const filtro = this.value.toLowerCase();
+            const tabela = document.getElementById('tabela-participantes');
+            const linhas = tabela.getElementsByTagName('tr');
+
+            for (let i = 1; i < linhas.length; i++) { // Começa em 1 para pular o cabeçalho
+                const nome = linhas[i].getElementsByTagName('td')[0].textContent.toLowerCase();
+                if (nome.includes(filtro)) {
+                    linhas[i].style.display = '';
+                } else {
+                    linhas[i].style.display = 'none';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

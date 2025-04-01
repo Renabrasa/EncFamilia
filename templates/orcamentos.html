@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Orçamentos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4 text-center">Controle de Orçamentos</h1>
+
+        <!-- Formulário de Cadastro/Edição -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="fas fa-plus me-2"></i>{{ 'Editar Orçamento' if edit_orcamento else 'Novo Orçamento' }}
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('editar_orcamento', id=edit_orcamento['id']) if edit_orcamento else url_for('controle_orcamentos') }}">
+                    <div class="mb-3">
+                        <label for="nome" class="form-label">Nome</label>
+                        <input type="text" class="form-control" id="nome" name="nome" value="{{ edit_orcamento['nome'] if edit_orcamento else '' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="valor_previsto" class="form-label">Valor Previsto (R$)</label>
+                        <input type="number" step="0.01" class="form-control" id="valor_previsto" name="valor_previsto" value="{{ edit_orcamento['valor_previsto'] if edit_orcamento else '' }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="categoria" class="form-label">Categoria (opcional)</label>
+                        <input type="text" class="form-control" id="categoria" name="categoria" value="{{ edit_orcamento['categoria'] if edit_orcamento else '' }}">
+                    </div>
+                    <button type="submit" class="btn btn-success w-100">
+                        <i class="fas fa-save me-2"></i>{{ 'Salvar Alterações' if edit_orcamento else 'Cadastrar' }}
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Lista de Orçamentos -->
+        <h2 class="mt-4">Orçamentos Cadastrados</h2>
+        <div class="mb-3">
+            <label for="busca" class="form-label">Buscar Orçamento</label>
+            <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input type="text" class="form-control" id="busca" placeholder="Digite o nome do orçamento">
+            </div>
+        </div>
+        <div class="table-responsive mb-4">
+            <table class="table table-striped" id="tabela-orcamentos">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Valor Previsto</th>
+                        <th>Valor Real</th>
+                        <th>Categoria</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in resumo_orcamentos %}
+                    <tr>
+                        <td>{{ o['nome'] }}</td>
+                        <td>R$ {{ "%.2f" % o['valor_previsto'] }}</td>
+                        <td>R$ {{ "%.2f" % o['valor_real'] }}</td>
+                        <td>{{ o['categoria'] or '-' }}</td>
+                        <td class="{{ 'text-success' if o['status'] == 'Dentro do Orçamento' else 'text-danger' }}">{{ o['status'] }}</td>
+                        <td>
+                            <a href="{{ url_for('editar_orcamento', id=o['id']) }}" class="btn btn-warning btn-sm action-btn"><i class="fas fa-edit"></i></a>
+                            <a href="{{ url_for('excluir_orcamento', id=o['id']) }}" class="btn btn-danger btn-sm action-btn" onclick="return confirm('Tem certeza que deseja excluir este orçamento?')"><i class="fas fa-trash"></i></a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <a href="{{ url_for('index') }}" class="btn btn-secondary w-100"><i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard</a>
+    </div>
+
+    <!-- Script de Busca -->
+    <script>
+        document.getElementById('busca').addEventListener('keyup', function() {
+            const filtro = this.value.toLowerCase();
+            const tabela = document.getElementById('tabela-orcamentos');
+            const linhas = tabela.getElementsByTagName('tr');
+
+            for (let i = 1; i < linhas.length; i++) {
+                const nome = linhas[i].getElementsByTagName('td')[0].textContent.toLowerCase();
+                if (nome.includes(filtro)) {
+                    linhas[i].style.display = '';
+                } else {
+                    linhas[i].style.display = 'none';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
