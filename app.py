@@ -180,6 +180,39 @@ def cadastro_usuario():
                 return "Erro no banco de dados!", 500
     return render_template('cadastro_usuario.html', is_root=session.get('is_root', False))
 
+# ... (código anterior do app.py mantido)
+
+# Rota para alterar senha
+@app.route('/alterar_senha', methods=['GET', 'POST'])
+@login_required
+def alterar_senha():
+    if request.method == 'POST':
+        senha_atual = request.form['senha_atual']
+        nova_senha = request.form['nova_senha']
+        confirmar_senha = request.form['confirmar_senha']
+        
+        with get_db_connection() as conn:
+            try:
+                user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (session['user_id'],)).fetchone()
+                if user['password'] != senha_atual:
+                    return render_template('alterar_senha.html', erro='Senha atual incorreta', is_root=session.get('is_root', False))
+                if nova_senha != confirmar_senha:
+                    return render_template('alterar_senha.html', erro='As novas senhas não coincidem', is_root=session.get('is_root', False))
+                if len(nova_senha) < 6:
+                    return render_template('alterar_senha.html', erro='A nova senha deve ter pelo menos 6 caracteres', is_root=session.get('is_root', False))
+                
+                conn.execute('UPDATE usuarios SET password = ? WHERE id = ?', (nova_senha, session['user_id']))
+                conn.commit()
+                return render_template('alterar_senha.html', sucesso='Senha alterada com sucesso!', is_root=session.get('is_root', False))
+            except sqlite3.Error as e:
+                conn.rollback()
+                logger.error(f"Erro ao alterar senha: {e}")
+                return "Erro no banco de dados!", 500
+    
+    return render_template('alterar_senha.html', is_root=session.get('is_root', False))
+
+# ... (restante do código mantido)
+
 # Rota de logout
 @app.route('/logout')
 @login_required
@@ -386,9 +419,10 @@ def controle_financeiro():
                     valor = float(request.form['valor'])
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
+                    orcamento_id = request.form.get('orcamento_id')  # Novo campo
 
-                    conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas) VALUES (?, ?, ?, ?, ?)',
-                                 (tipo, descricao, participante_id, valor, parcelas))
+                    conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas, orcamento_id) VALUES (?, ?, ?, ?, ?, ?)',
+                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None))
                     transacao_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
                     valor_parcela = valor / parcelas
                     data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
@@ -408,7 +442,8 @@ def controle_financeiro():
                         'participante_nome': participante_nome,
                         'valor': valor,
                         'parcelas': parcelas,
-                        'data_vencimento': data_vencimento
+                        'data_vencimento': data_vencimento,
+                        'orcamento_id': orcamento_id
                     })
                 elif action == 'editar':
                     transacao_id = request.form['transacao_id']
@@ -418,9 +453,10 @@ def controle_financeiro():
                     valor = float(request.form['valor'])
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
+                    orcamento_id = request.form.get('orcamento_id')  # Novo campo
 
-                    conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ? WHERE id = ?',
-                                 (tipo, descricao, participante_id, valor, parcelas, transacao_id))
+                    conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ?, orcamento_id = ? WHERE id = ?',
+                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None, transacao_id))
                     conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
                     valor_parcela = valor / parcelas
                     data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
@@ -438,10 +474,11 @@ def controle_financeiro():
 
             busca = request.args.get('busca', '')
             query = '''
-                SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, p.nome AS participante_nome, t.participante_id
+                SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, p.nome AS participante_nome, t.participante_id, t.orcamento_id, o.nome AS orcamento_nome
                 FROM transacoes t
                 JOIN participantes p ON t.participante_id = p.id
                 JOIN parcelas par ON t.id = par.transacao_id
+                LEFT JOIN orcamentos o ON t.orcamento_id = o.id
                 WHERE par.numero = 1
             '''
             params = []
@@ -450,9 +487,10 @@ def controle_financeiro():
                 params.append(f'%{busca}%')
             fluxo_caixa = conn.execute(query, params).fetchall()
             participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
+            orcamentos = conn.execute('SELECT id, nome FROM orcamentos').fetchall()
 
             return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, participantes=participantes, 
-                                   data_atual=data_atual, is_root=session.get('is_root', False))
+                                   orcamentos=orcamentos, data_atual=data_atual, is_root=session.get('is_root', False))
         except sqlite3.Error as e:
             conn.rollback()
             logger.error(f"Erro em financeiro: {e}")
@@ -909,7 +947,10 @@ def calcular_resumo_orcamentos(orcamentos):
     resumo = []
     try:
         for orcamento in orcamentos:
-            valor_real = conn.execute('SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ?', (orcamento['id'],)).fetchone()[0] or 0
+            valor_real = conn.execute(
+                'SELECT SUM(valor) FROM transacoes WHERE orcamento_id = ? AND tipo = "saida"',
+                (orcamento['id'],)
+            ).fetchone()[0] or 0
             status = 'Dentro do Orçamento' if valor_real <= orcamento['valor_previsto'] else 'Fora do Orçamento'
             resumo.append({
                 'id': orcamento['id'],

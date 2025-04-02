@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,59 +10,24 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         @media (max-width: 768px) {
-            .table-responsive {
-                font-size: 0.9rem;
-            }
-
-            .table th,
-            .table td {
-                padding: 0.5rem;
-            }
-
-            .hide-on-mobile {
-                display: none;
-            }
+            .table-responsive { font-size: 0.9rem; }
+            .table th, .table td { padding: 0.5rem; }
+            .hide-on-mobile { display: none; }
         }
-
-        .btn {
-            width: 150px;
-            padding: 8px 12px;
-            font-size: 1rem;
-            border-radius: 6px;
-        }
-
-        .btn-sm {
-            width: 40px;
-            height: 40px;
-            padding: 0;
-            font-size: 0.9rem;
-            line-height: 40px;
-            border-radius: 6px;
-        }
-
+        .btn { width: 150px; padding: 8px 12px; font-size: 1rem; border-radius: 6px; }
+        .btn-sm { width: 40px; height: 40px; padding: 0; font-size: 0.9rem; line-height: 40px; border-radius: 6px; }
         @media (max-width: 768px) {
-            .btn {
-                width: 120px;
-                padding: 6px 10px;
-                font-size: 0.9rem;
-            }
-
-            .btn-sm {
-                width: 35px;
-                height: 35px;
-                line-height: 35px;
-            }
+            .btn { width: 120px; padding: 6px 10px; font-size: 0.9rem; }
+            .btn-sm { width: 35px; height: 35px; line-height: 35px; }
         }
     </style>
 </head>
-
 <body>
     <div class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         {% for category, message in messages %}
-        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show"
-            role="alert">
+        <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
             {{ message }}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
@@ -71,9 +35,7 @@
         {% endif %}
         {% endwith %}
         <h1 class="my-4 text-center">Orçamentos</h1>
-        
 
-        <!-- Botões de ação -->
         <div class="mb-4 text-end">
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novoOrcamentoModal">
                 <i class="fas fa-plus me-2"></i>Novo Orçamento
@@ -83,11 +45,8 @@
             </a>
         </div>
 
-        <!-- Tabela de Orçamentos -->
         <div class="card">
-            <div class="card-header">
-                Lista de Orçamentos
-            </div>
+            <div class="card-header">Lista de Orçamentos</div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-striped" id="orcamentos-table">
@@ -95,7 +54,7 @@
                             <tr>
                                 <th>Descrição</th>
                                 <th>Valor Previsto</th>
-                                <th class="hide-on-mobile">Valor Real</th>
+                                <th class="hide-on-mobile">Valor Real (Financeiro)</th>
                                 <th class="hide-on-mobile">Categoria</th>
                                 <th class="hide-on-mobile">Status</th>
                                 <th>Ações</th>
@@ -109,19 +68,15 @@
                                 <td class="hide-on-mobile">R$ {{ "%.2f" % orcamento['valor_real'] }}</td>
                                 <td class="hide-on-mobile">{{ orcamento['categoria'] or 'Sem categoria' }}</td>
                                 <td class="hide-on-mobile">
-                                    <span
-                                        class="badge {{ 'bg-success' if orcamento['status'] == 'Dentro do Orçamento' else 'bg-danger' }}">
+                                    <span class="badge {{ 'bg-success' if orcamento['status'] == 'Dentro do Orçamento' else 'bg-danger' }}">
                                         {{ orcamento['status'] }}
                                     </span>
                                 </td>
                                 <td>
-                                    <a href="{{ url_for('editar_orcamento', id=orcamento['id']) }}"
-                                        class="btn btn-warning btn-sm">
+                                    <a href="{{ url_for('editar_orcamento', id=orcamento['id']) }}" class="btn btn-warning btn-sm">
                                         <i class="fas fa-edit"></i>
                                     </a>
-                                    <a href="{{ url_for('excluir_orcamento', id=orcamento['id']) }}"
-                                        class="btn btn-danger btn-sm"
-                                        onclick="return confirm('Tem certeza que deseja excluir este orçamento?')">
+                                    <a href="{{ url_for('excluir_orcamento', id=orcamento['id']) }}" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir este orçamento?')">
                                         <i class="fas fa-trash"></i>
                                     </a>
                                 </td>
@@ -133,9 +88,7 @@
             </div>
         </div>
 
-        <!-- Modal para Novo Orçamento -->
-        <div class="modal fade" id="novoOrcamentoModal" tabindex="-1" aria-labelledby="novoOrcamentoModalLabel"
-            aria-hidden="true">
+        <div class="modal fade" id="novoOrcamentoModal" tabindex="-1" aria-labelledby="novoOrcamentoModalLabel" aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -150,8 +103,7 @@
                             </div>
                             <div class="mb-3">
                                 <label for="valor_previsto" class="form-label">Valor Previsto (R$)</label>
-                                <input type="number" step="0.01" class="form-control" id="valor_previsto"
-                                    name="valor_previsto" required>
+                                <input type="number" step="0.01" class="form-control" id="valor_previsto" name="valor_previsto" required>
                             </div>
                             <div class="mb-3">
                                 <label for="categoria" class="form-label">Categoria (opcional)</label>
@@ -167,38 +119,31 @@
             </div>
         </div>
 
-        <!-- Modal para Editar Orçamento -->
         {% if edit_orcamento %}
-        <div class="modal fade" id="editOrcamentoModal" tabindex="-1" aria-labelledby="editOrcamentoModalLabel"
-            aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal fade" id="editOrcamentoModal" tabindex="-1" aria-labelledby="editOrcamentoModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="editOrcamentoModalLabel">Editar Orçamento</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"
-                            onclick="window.location.href='{{ url_for('controle_orcamentos') }}'"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="window.location.href='{{ url_for('controle_orcamentos') }}'"></button>
                     </div>
                     <form method="POST" action="{{ url_for('editar_orcamento', id=edit_orcamento['id']) }}">
                         <div class="modal-body">
                             <div class="mb-3">
                                 <label for="edit_nome" class="form-label">Descrição</label>
-                                <input type="text" class="form-control" id="edit_nome" name="nome"
-                                    value="{{ edit_orcamento['nome'] }}" required>
+                                <input type="text" class="form-control" id="edit_nome" name="nome" value="{{ edit_orcamento['nome'] }}" required>
                             </div>
                             <div class="mb-3">
                                 <label for="edit_valor_previsto" class="form-label">Valor Previsto (R$)</label>
-                                <input type="number" step="0.01" class="form-control" id="edit_valor_previsto"
-                                    name="valor_previsto" value="{{ edit_orcamento['valor_previsto'] }}" required>
+                                <input type="number" step="0.01" class="form-control" id="edit_valor_previsto" name="valor_previsto" value="{{ edit_orcamento['valor_previsto'] }}" required>
                             </div>
                             <div class="mb-3">
                                 <label for="edit_categoria" class="form-label">Categoria (opcional)</label>
-                                <input type="text" class="form-control" id="edit_categoria" name="categoria"
-                                    value="{{ edit_orcamento['categoria'] or '' }}">
+                                <input type="text" class="form-control" id="edit_categoria" name="categoria" value="{{ edit_orcamento['categoria'] or '' }}">
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal"
-                                onclick="window.location.href='{{ url_for('controle_orcamentos') }}'">Cancelar</button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" onclick="window.location.href='{{ url_for('controle_orcamentos') }}'">Cancelar</button>
                             <button type="submit" class="btn btn-primary">Salvar</button>
                         </div>
                     </form>
@@ -216,5 +161,4 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-
 </html>

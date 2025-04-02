@@ -9,34 +9,17 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        /* Ajustes para responsividade */
         @media (max-width: 768px) {
-            .table-responsive {
-                font-size: 0.9rem; /* Reduz o tamanho da fonte em telas pequenas */
-            }
-            .table th, .table td {
-                padding: 0.5rem; /* Menos espaço interno */
-            }
-            .btn-sm {
-                font-size: 0.8rem; /* Botões menores */
-                padding: 0.2rem 0.5rem;
-            }
-            .card-header form {
-                flex-direction: column; /* Busca empilhada em telas pequenas */
-                align-items: stretch;
-            }
-            .card-header .form-control {
-                margin-bottom: 0.5rem;
-            }
-            /* Esconde colunas menos importantes em telas pequenas */
-            .hide-on-mobile {
-                display: none;
-            }
+            .table-responsive { font-size: 0.9rem; }
+            .table th, .table td { padding: 0.5rem; }
+            .btn-sm { font-size: 0.8rem; padding: 0.2rem 0.5rem; }
+            .card-header form { flex-direction: column; align-items: stretch; }
+            .card-header .form-control { margin-bottom: 0.5rem; }
+            .hide-on-mobile { display: none; }
         }
     </style>
 </head>
 <body>
-    <!-- Container para Toasts -->
     <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
         <div id="toastContainer"></div>
     </div>
@@ -44,7 +27,6 @@
     <div class="container">
         <h1 class="my-4 text-center">Controle Financeiro</h1>
 
-        <!-- Botões de ação (somente para ROOT) -->
         <div class="mb-4 text-end">
             {% if is_root %}
             <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#novaTransacaoModal">
@@ -59,7 +41,6 @@
             </a>
         </div>
 
-        <!-- Tabela de Fluxo de Caixa -->
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 Fluxo de Caixa
@@ -79,6 +60,7 @@
                                 <th>Valor Total</th>
                                 <th class="hide-on-mobile">Parcelas</th>
                                 <th class="hide-on-mobile">Data 1ª Parcela</th>
+                                <th class="hide-on-mobile">Orçamento</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -91,10 +73,11 @@
                                 <td>R$ {{ "%.2f" % transacao['valor'] }}</td>
                                 <td class="hide-on-mobile">{{ transacao['parcelas'] }}</td>
                                 <td class="hide-on-mobile">{{ transacao['data_vencimento'] | replace('-', '/') }}</td>
+                                <td class="hide-on-mobile">{{ transacao['orcamento_nome'] or 'Não vinculado' }}</td>
                                 <td>
                                     {% if is_root %}
                                     <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editTransacaoModal"
-                                            onclick="setEditTransacaoModal('{{ transacao['id'] }}', '{{ transacao['tipo'] }}', '{{ transacao['descricao'] }}', '{{ transacao['participante_id'] }}', '{{ transacao['valor'] }}', '{{ transacao['parcelas'] }}', '{{ transacao['data_vencimento'] }}')">
+                                            onclick="setEditTransacaoModal('{{ transacao['id'] }}', '{{ transacao['tipo'] }}', '{{ transacao['descricao'] }}', '{{ transacao['participante_id'] }}', '{{ transacao['valor'] }}', '{{ transacao['parcelas'] }}', '{{ transacao['data_vencimento'] }}', '{{ transacao['orcamento_id'] or '' }}')">
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <form method="POST" action="{{ url_for('controle_financeiro') }}" class="d-inline">
@@ -113,7 +96,6 @@
             </div>
         </div>
 
-        <!-- Modal para Nova Transação (somente para ROOT) -->
         {% if is_root %}
         <div class="modal fade" id="novaTransacaoModal" tabindex="-1" aria-labelledby="novaTransacaoModalLabel" aria-hidden="true">
             <div class="modal-dialog">
@@ -155,6 +137,15 @@
                                 <label for="data_vencimento" class="form-label">Data da Primeira Parcela</label>
                                 <input type="date" class="form-control" id="data_vencimento" name="data_vencimento" value="{{ data_atual }}" required>
                             </div>
+                            <div class="mb-3">
+                                <label for="orcamento_id" class="form-label">Orçamento (opcional)</label>
+                                <select class="form-control" id="orcamento_id" name="orcamento_id">
+                                    <option value="">Sem vínculo</option>
+                                    {% for orcamento in orcamentos %}
+                                    <option value="{{ orcamento['id'] }}">{{ orcamento['nome'] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </form>
                     </div>
                     <div class="modal-footer">
@@ -165,7 +156,6 @@
             </div>
         </div>
 
-        <!-- Modal para Editar Transação (somente para ROOT) -->
         <div class="modal fade" id="editTransacaoModal" tabindex="-1" aria-labelledby="editTransacaoModalLabel" aria-hidden="true">
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -208,6 +198,15 @@
                                 <label for="edit_data_vencimento" class="form-label">Data da Primeira Parcela</label>
                                 <input type="date" class="form-control" id="edit_data_vencimento" name="data_vencimento" required>
                             </div>
+                            <div class="mb-3">
+                                <label for="edit_orcamento_id" class="form-label">Orçamento (opcional)</label>
+                                <select class="form-control" id="edit_orcamento_id" name="orcamento_id">
+                                    <option value="">Sem vínculo</option>
+                                    {% for orcamento in orcamentos %}
+                                    <option value="{{ orcamento['id'] }}">{{ orcamento['nome'] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -239,7 +238,7 @@
             toastContainer.appendChild(toast);
             const bsToast = new bootstrap.Toast(toast);
             bsToast.show();
-            setTimeout(() => toast.remove(), 5000); // Remove após 5 segundos
+            setTimeout(() => toast.remove(), 5000);
         }
 
         function cadastrarTransacao() {
@@ -264,9 +263,10 @@
                         <td>R$ ${parseFloat(data.valor).toFixed(2)}</td>
                         <td class="hide-on-mobile">${data.parcelas}</td>
                         <td class="hide-on-mobile">${data.data_vencimento.replace(/-/g, '/')}</td>
+                        <td class="hide-on-mobile">${data.orcamento_id ? document.querySelector(`#orcamento_id option[value="${data.orcamento_id}"]`).text : 'Não vinculado'}</td>
                         <td>
                             <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editTransacaoModal"
-                                    onclick="setEditTransacaoModal('${data.transacao_id}', '${data.tipo}', '${data.descricao}', '${data.participante_id}', '${data.valor}', '${data.parcelas}', '${data.data_vencimento}')">
+                                    onclick="setEditTransacaoModal('${data.transacao_id}', '${data.tipo}', '${data.descricao}', '${data.participante_id}', '${data.valor}', '${data.parcelas}', '${data.data_vencimento}', '${data.orcamento_id || ''}')">
                                 <i class="fas fa-edit"></i>
                             </button>
                             <form method="POST" action="{{ url_for('controle_financeiro') }}" class="d-inline">
@@ -293,7 +293,7 @@
             });
         }
 
-        function setEditTransacaoModal(id, tipo, descricao, participante_id, valor, parcelas, data_vencimento) {
+        function setEditTransacaoModal(id, tipo, descricao, participante_id, valor, parcelas, data_vencimento, orcamento_id) {
             document.getElementById('edit_transacao_id').value = id;
             document.getElementById('edit_tipo').value = tipo;
             document.getElementById('edit_descricao').value = descricao;
@@ -301,8 +301,9 @@
             document.getElementById('edit_valor').value = valor;
             document.getElementById('edit_parcelas').value = parcelas;
             document.getElementById('edit_data_vencimento').value = data_vencimento;
+            document.getElementById('edit_orcamento_id').value = orcamento_id;
         }
         {% endif %}
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'92991c3979f653f9',t:'MTc0MzUyMTI0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
