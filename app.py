@@ -57,6 +57,19 @@ def root_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+@app.before_request
+def before_request():
+    if 'theme' not in session:
+        session['theme'] = 'light'
+
+@app.route('/toggle_theme', methods=['POST'])
+@login_required
+def toggle_theme():
+    session['theme'] = 'dark' if session.get('theme') == 'light' else 'light'
+    return jsonify({'success': True, 'theme': session['theme']})
+
+
 # Carregar usuário logado antes de cada requisição
 @app.before_request
 def load_logged_in_user():
@@ -258,7 +271,8 @@ def index():
                                    parcelas_a_vencer=parcelas_a_vencer, 
                                    entradas_por_mes=entradas_por_mes, 
                                    saidas_por_mes=saidas_por_mes,
-                                   is_root=session.get('is_root', False))
+                                   is_root=session.get('is_root', False),
+                                   theme=session.get('theme'))
         except sqlite3.Error as e:
             logger.error(f"Erro no index: {e}")
             return "Erro no banco de dados!", 500
@@ -449,9 +463,10 @@ def controle_financeiro():
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
                     orcamento_id = request.form.get('orcamento_id')
+                    categoria_id = request.form.get('categoria_id')
 
-                    conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas, orcamento_id) VALUES (?, ?, ?, ?, ?, ?)',
-                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None))
+                    conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas, orcamento_id, categoria_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None, categoria_id or None))
                     transacao_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
                     valor_parcela = valor / parcelas
                     data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
@@ -462,6 +477,8 @@ def controle_financeiro():
                     conn.commit()
 
                     participante_nome = conn.execute('SELECT nome FROM participantes WHERE id = ?', (participante_id,)).fetchone()['nome']
+                    categoria_nome = conn.execute('SELECT nome FROM categorias WHERE id = ?', (categoria_id,)).fetchone()['nome'] if categoria_id else None
+                    orcamento_nome = conn.execute('SELECT nome FROM orcamentos WHERE id = ?', (orcamento_id,)).fetchone()['nome'] if orcamento_id else None
                     return jsonify({
                         'success': True,
                         'transacao_id': transacao_id,
@@ -472,7 +489,10 @@ def controle_financeiro():
                         'valor': valor,
                         'parcelas': parcelas,
                         'data_vencimento': data_vencimento,
-                        'orcamento_id': orcamento_id
+                        'orcamento_id': orcamento_id,
+                        'orcamento_nome': orcamento_nome,
+                        'categoria_id': categoria_id,
+                        'categoria_nome': categoria_nome
                     })
                 elif action == 'editar':
                     transacao_id = request.form['transacao_id']
@@ -482,32 +502,30 @@ def controle_financeiro():
                     valor = float(request.form['valor'])
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
-                    orcamento_id = request.form.get('orcamento_id')
+                    orcamento_id = request.form.get('orcamento_id') or None
+                    categoria_id = request.form.get('categoria_id') or None
 
-                    conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ?, orcamento_id = ? WHERE id = ?',
-                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None, transacao_id))
-                    conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
-                    valor_parcela = valor / parcelas
-                    data_inicial = datetime.strptime(data_vencimento, '%Y-%m-%d')
-                    for i in range(parcelas):
-                        data_parcela = (data_inicial + timedelta(days=30 * i)).strftime('%Y-%m-%d')
-                        conn.execute('INSERT INTO parcelas (transacao_id, numero, valor, data_vencimento, pago) VALUES (?, ?, ?, ?, ?)',
-                                     (transacao_id, i + 1, valor_parcela, data_parcela, 0))
+                    conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ?, orcamento_id = ?, categoria_id = ? WHERE id = ?',
+                                 (tipo, descricao, participante_id, valor, parcelas, orcamento_id, categoria_id, transacao_id))
                     conn.commit()
+                    return redirect(url_for('controle_financeiro'))
                 elif action == 'excluir':
                     transacao_id = request.form['transacao_id']
                     conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
                     conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
                     conn.commit()
-                return redirect(url_for('controle_financeiro', busca=request.args.get('busca', '')))
+                    return redirect(url_for('controle_financeiro'))
 
             busca = request.args.get('busca', '')
             query = '''
-                SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, p.nome AS participante_nome, t.participante_id, t.orcamento_id, o.nome AS orcamento_nome
+                SELECT t.id, t.tipo, t.descricao, t.valor, t.parcelas, par.data_vencimento, 
+                       p.nome AS participante_nome, t.participante_id, t.orcamento_id, o.nome AS orcamento_nome,
+                       t.categoria_id, c.nome AS categoria_nome
                 FROM transacoes t
                 JOIN participantes p ON t.participante_id = p.id
                 JOIN parcelas par ON t.id = par.transacao_id
                 LEFT JOIN orcamentos o ON t.orcamento_id = o.id
+                LEFT JOIN categorias c ON t.categoria_id = c.id
                 WHERE par.numero = 1
             '''
             params = []
@@ -516,16 +534,19 @@ def controle_financeiro():
                 params.append(f'%{busca}%')
             fluxo_caixa = conn.execute(query, params).fetchall()
             
-            # Apenas buscar participantes para o formulário, não para exibição como tabela
-            participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
-            orcamentos = conn.execute('SELECT id, nome FROM orcamentos').fetchall()
+            participantes = conn.execute('SELECT id, nome FROM participantes ORDER BY nome').fetchall()
+            orcamentos = conn.execute('SELECT id, nome FROM orcamentos ORDER BY nome').fetchall()
+            categorias = conn.execute('SELECT id, nome FROM categorias ORDER BY nome').fetchall()
 
             return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, 
                                    participantes=participantes, orcamentos=orcamentos, 
-                                   data_atual=data_atual, is_root=session.get('is_root', False))
+                                   categorias=categorias, data_atual=data_atual, 
+                                   is_root=session.get('is_root', False), 
+                                   theme=session.get('theme'))
         except sqlite3.Error as e:
             conn.rollback()
             logger.error(f"Erro em financeiro: {e}")
+            print(f"Erro no banco de dados: {e}")  # Para depuração
             return "Erro no banco de dados!", 500
 
 # Editar transação (sem mudanças)
@@ -1167,6 +1188,7 @@ def baixas():
                                    status=status, 
                                    data_inicio=data_inicio, 
                                    data_atual=data_atual, 
+                                   theme=session.get('theme'),  # Adicionado theme
                                    is_root=session.get('is_root', False))
         
         except sqlite3.Error as e:
@@ -1238,7 +1260,44 @@ def relatorios():
         flash('Erro ao carregar os relatórios devido a um problema no banco de dados!', 'danger')
         return render_template('relatorios.html', relatorios={}, is_root=session.get('is_root', False))
             
-        
+@app.route('/categorias', methods=['GET', 'POST'])
+@login_required
+def controle_categorias():
+    if not session.get('is_root'):
+        return "Permissão negada: apenas administradores podem gerenciar categorias.", 403
+    
+    with get_db_connection() as conn:
+        try:
+            if request.method == 'POST':
+                action = request.form.get('action')
+                if action == 'cadastrar':
+                    nome = request.form['nome']
+                    conn.execute('INSERT INTO categorias (nome) VALUES (?)', (nome,))
+                    conn.commit()
+                    return jsonify({'success': True, 'nome': nome})
+                elif action == 'editar':
+                    categoria_id = request.form['categoria_id']
+                    nome = request.form['nome']
+                    conn.execute('UPDATE categorias SET nome = ? WHERE id = ?', (nome, categoria_id))
+                    conn.commit()
+                    return redirect(url_for('controle_categorias'))
+                elif action == 'excluir':
+                    categoria_id = request.form['categoria_id']
+                    transacoes = conn.execute('SELECT COUNT(*) FROM transacoes WHERE categoria_id = ?', (categoria_id,)).fetchone()[0]
+                    if transacoes > 0:
+                        return jsonify({'success': False, 'error': 'Essa categoria não pode ser excluída porque está vinculada a transações!'})
+                    conn.execute('DELETE FROM categorias WHERE id = ?', (categoria_id,))
+                    conn.commit()
+                    return jsonify({'success': True, 'categoria_id': categoria_id})
+
+            categorias = conn.execute('SELECT id, nome FROM categorias ORDER BY nome').fetchall()
+            return render_template('categorias.html', categorias=categorias, 
+                                   is_root=session.get('is_root', False), 
+                                   theme=session.get('theme'))  # Adicionado theme
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em controle_categorias: {e}")
+            return "Erro no banco de dados!", 500        
         
 
 # Rota home (sem mudanças)

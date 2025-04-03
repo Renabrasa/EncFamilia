@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Categorias</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container mt-3">
+        <div class="form-check form-switch float-end">
+            <input class="form-check-input" type="checkbox" id="themeSwitch" {% if theme == 'dark' %}checked{% endif %}>
+            <label class="form-check-label" for="themeSwitch">Modo Escuro</label>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1 class="my-4 text-center">Gestão de Categorias</h1>
+
+        <div class="mb-4 text-end">
+            <a href="{{ url_for('controle_financeiro') }}" class="btn btn-primary">
+                <i class="fas fa-money-bill-wave me-2"></i>Fluxo de Caixa
+            </a>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary ms-2">
+                <i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard
+            </a>
+        </div>
+
+        {% if is_root %}
+        <div class="card mb-4">
+            <div class="card-header">Nova Categoria</div>
+            <div class="card-body">
+                <form id="novaCategoriaForm">
+                    <div class="mb-3">
+                        <label for="nome" class="form-label">Nome da Categoria</label>
+                        <input type="text" class="form-control" id="nome" name="nome" required>
+                    </div>
+                    <input type="hidden" name="action" value="cadastrar">
+                    <button type="submit" class="btn btn-primary">Cadastrar</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header">Categorias Cadastradas</div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped" id="categorias-table">
+                        <thead>
+                            <tr>
+                                <th>Nome</th>
+                                {% if is_root %}<th>Ações</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for categoria in categorias %}
+                            <tr id="categoria-{{ categoria['id'] }}">
+                                <td>{{ categoria['nome'] }}</td>
+                                {% if is_root %}
+                                <td>
+                                    <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCategoriaModal"
+                                            onclick="setEditCategoriaModal('{{ categoria['id'] }}', '{{ categoria['nome'] }}')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form method="POST" action="{{ url_for('controle_categorias') }}" class="d-inline">
+                                        <input type="hidden" name="action" value="excluir">
+                                        <input type="hidden" name="categoria_id" value="{{ categoria['id'] }}">
+                                        <button type="submit" class="btn btn-danger btn-sm"
+                                                onclick="return confirm('Tem certeza que deseja excluir esta categoria?')">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        {% if is_root %}
+        <div class="modal fade" id="editCategoriaModal" tabindex="-1" aria-labelledby="editCategoriaModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editCategoriaModalLabel">Editar Categoria</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <form method="POST" action="{{ url_for('controle_categorias') }}">
+                        <div class="modal-body">
+                            <input type="hidden" name="action" value="editar">
+                            <input type="hidden" name="categoria_id" id="edit_categoria_id">
+                            <div class="mb-3">
+                                <label for="edit_nome" class="form-label">Nome da Categoria</label>
+                                <input type="text" class="form-control" id="edit_nome" name="nome" required>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Salvar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        {% if is_root %}
+        document.getElementById('novaCategoriaForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch('{{ url_for("controle_categorias") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const table = document.getElementById('categorias-table').querySelector('tbody');
+                    const newRow = document.createElement('tr');
+                    newRow.id = `categoria-${data.id || table.children.length + 1}`; // Fallback para ID
+                    newRow.innerHTML = `
+                        <td>${data.nome}</td>
+                        <td>
+                            <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCategoriaModal"
+                                    onclick="setEditCategoriaModal('${data.id || table.children.length + 1}', '${data.nome}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <form method="POST" action="{{ url_for('controle_categorias') }}" class="d-inline">
+                                <input type="hidden" name="action" value="excluir">
+                                <input type="hidden" name="categoria_id" value="${data.id || table.children.length + 1}">
+                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir esta categoria?')">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    `;
+                    table.appendChild(newRow);
+                    this.reset();
+                    alert('Categoria cadastrada com sucesso!');
+                } else {
+                    alert('Erro ao cadastrar: ' + data.error);
+                }
+            })
+            .catch(error => alert('Erro ao cadastrar a categoria: ' + error));
+        });
+
+        function setEditCategoriaModal(id, nome) {
+            document.getElementById('edit_categoria_id').value = id;
+            document.getElementById('edit_nome').value = nome;
+        }
+        {% endif %}
+
+        // JavaScript para o Modo Escuro
+        document.getElementById('themeSwitch').addEventListener('change', function() {
+            fetch('{{ url_for("toggle_theme") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.documentElement.setAttribute('data-theme', data.theme);
+                }
+            })
+            .catch(error => console.error('Erro ao alternar tema:', error));
+        });
+
+        // Aplicar tema ao carregar a página
+        document.documentElement.setAttribute('data-theme', '{{ theme }}');
+    </script>
+</body>
+</html>

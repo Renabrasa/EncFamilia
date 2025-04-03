@@ -46,6 +46,13 @@
         <div id="toastContainer"></div>
     </div>
 
+    <div class="container mt-3">
+        <div class="form-check form-switch float-end">
+            <input class="form-check-input" type="checkbox" id="themeSwitch" {% if theme == 'dark' %}checked{% endif %}>
+            <label class="form-check-label" for="themeSwitch">Modo Escuro</label>
+        </div>
+    </div>
+
     <div class="container">
         <h1 class="my-4 text-center">Controle Financeiro</h1>
 
@@ -60,6 +67,9 @@
             </a>
             <a href="{{ url_for('index') }}" class="btn btn-secondary ms-2">
                 <i class="fas fa-arrow-left me-2"></i>Voltar ao Dashboard
+            </a>
+            <a href="{{ url_for('controle_categorias') }}" class="btn btn-info ms-2">
+                <i class="fas fa-folder me-2"></i>Categorias
             </a>
         </div>
 
@@ -84,6 +94,7 @@
                                 <th class="hide-on-mobile">Parcelas</th>
                                 <th class="hide-on-mobile">Data 1ª Parcela</th>
                                 <th class="hide-on-mobile">Orçamento</th>
+                                <th class="hide-on-mobile">Categoria</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -98,11 +109,12 @@
                                 <td class="hide-on-mobile">{{ transacao['parcelas'] }}</td>
                                 <td class="hide-on-mobile">{{ transacao['data_vencimento'] | replace('-', '/') }}</td>
                                 <td class="hide-on-mobile">{{ transacao['orcamento_nome'] or 'Não vinculado' }}</td>
+                                <td class="hide-on-mobile">{{ transacao['categoria_nome'] or 'Sem categoria' }}</td>
                                 <td>
                                     {% if is_root %}
                                     <button class="btn btn-warning btn-sm" data-bs-toggle="modal"
                                         data-bs-target="#editTransacaoModal"
-                                        onclick="setEditTransacaoModal('{{ transacao['id'] }}', '{{ transacao['tipo'] }}', '{{ transacao['descricao'] }}', '{{ transacao['participante_id'] }}', '{{ transacao['valor'] }}', '{{ transacao['parcelas'] }}', '{{ transacao['data_vencimento'] }}', '{{ transacao['orcamento_id'] or '' }}')">
+                                        onclick="setEditTransacaoModal('{{ transacao['id'] }}', '{{ transacao['tipo'] }}', '{{ transacao['descricao'] }}', '{{ transacao['participante_id'] }}', '{{ transacao['valor'] }}', '{{ transacao['parcelas'] }}', '{{ transacao['data_vencimento'] }}', '{{ transacao['orcamento_id'] or '' }}', '{{ transacao['categoria_id'] or '' }}')">
                                         <i class="fas fa-edit"></i>
                                     </button>
                                     <form method="POST" action="{{ url_for('controle_financeiro') }}" class="d-inline">
@@ -182,6 +194,15 @@
                                     {% endfor %}
                                 </select>
                             </div>
+                            <div class="mb-3">
+                                <label for="categoria_id" class="form-label">Categoria (opcional)</label>
+                                <select class="form-control" id="categoria_id" name="categoria_id">
+                                    <option value="">Sem categoria</option>
+                                    {% for categoria in categorias %}
+                                    <option value="{{ categoria['id'] }}">{{ categoria['nome'] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </form>
                     </div>
                     <div class="modal-footer">
@@ -247,6 +268,15 @@
                                     {% endfor %}
                                 </select>
                             </div>
+                            <div class="mb-3">
+                                <label for="edit_categoria_id" class="form-label">Categoria (opcional)</label>
+                                <select class="form-control" id="edit_categoria_id" name="categoria_id">
+                                    <option value="">Sem categoria</option>
+                                    {% for categoria in categorias %}
+                                    <option value="{{ categoria['id'] }}">{{ categoria['nome'] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                         </div>
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -303,10 +333,11 @@
                         <td>R$ ${parseFloat(data.valor).toFixed(2)}</td>
                         <td class="hide-on-mobile">${data.parcelas}</td>
                         <td class="hide-on-mobile">${data.data_vencimento.replace(/-/g, '/')}</td>
-                        <td class="hide-on-mobile">${data.orcamento_id ? document.querySelector(`#orcamento_id option[value="${data.orcamento_id}"]`).text : 'Não vinculado'}</td>
+                        <td class="hide-on-mobile">${data.orcamento_id ? document.querySelector('#orcamento_id option[value="${data.orcamento_id}"]').text : 'Não vinculado'}</td>
+                        <td class="hide-on-mobile">${data.categoria_id ? document.querySelector('#categoria_id option[value="${data.categoria_id}"]').text : 'Sem categoria'}</td>
                         <td>
                             <button class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editTransacaoModal"
-                                    onclick="setEditTransacaoModal('${data.transacao_id}', '${data.tipo}', '${data.descricao}', '${data.participante_id}', '${data.valor}', '${data.parcelas}', '${data.data_vencimento}', '${data.orcamento_id || ''}')">
+                                    onclick="setEditTransacaoModal('${data.transacao_id}', '${data.tipo}', '${data.descricao}', '${data.participante_id}', '${data.valor}', '${data.parcelas}', '${data.data_vencimento}', '${data.orcamento_id || ''}', '${data.categoria_id || ''}')">
                                 <i class="fas fa-edit"></i>
                             </button>
                             <form method="POST" action="{{ url_for('controle_financeiro') }}" class="d-inline">
@@ -334,7 +365,7 @@
                 });
         }
 
-        function setEditTransacaoModal(id, tipo, descricao, participante_id, valor, parcelas, data_vencimento, orcamento_id) {
+        function setEditTransacaoModal(id, tipo, descricao, participante_id, valor, parcelas, data_vencimento, orcamento_id, categoria_id) {
             document.getElementById('edit_transacao_id').value = id;
             document.getElementById('edit_tipo').value = tipo;
             document.getElementById('edit_descricao').value = descricao;
@@ -342,7 +373,8 @@
             document.getElementById('edit_valor').value = valor;
             document.getElementById('edit_parcelas').value = parcelas;
             document.getElementById('edit_data_vencimento').value = data_vencimento;
-            document.getElementById('edit_orcamento_id').value = orcamento_id;
+            document.getElementById('edit_orcamento_id').value = orcamento_id || '';
+            document.getElementById('edit_categoria_id').value = categoria_id || '';
         }
 
         function cadastrarParticipanteRapido() {
@@ -383,6 +415,24 @@
                 });
         }
         {% endif %}
+
+        // JavaScript para o Modo Escuro
+        document.getElementById('themeSwitch').addEventListener('change', function() {
+            fetch('{{ url_for("toggle_theme") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.documentElement.setAttribute('data-theme', data.theme);
+                }
+            })
+            .catch(error => console.error('Erro ao alternar tema:', error));
+        });
+
+        // Aplicar tema ao carregar a página
+        document.documentElement.setAttribute('data-theme', '{{ theme }}');
     </script>
 </body>
 

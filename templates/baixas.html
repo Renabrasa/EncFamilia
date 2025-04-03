@@ -37,6 +37,12 @@
     </style>
 </head>
 <body>
+    <div class="container mt-3">
+        <div class="form-check form-switch float-end">
+            <input class="form-check-input" type="checkbox" id="themeSwitch" {% if session.theme == 'dark' %}checked{% endif %}>
+            <label class="form-check-label" for="themeSwitch">Modo Escuro</label>
+        </div>
+    </div>
     <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
         <div id="toastContainer"></div>
     </div>
@@ -339,6 +345,23 @@
             });
         }
         {% endif %}
+    </script>
+    <script>
+        document.getElementById('themeSwitch').addEventListener('change', function() {
+            fetch('{{ url_for("toggle_theme") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.documentElement.setAttribute('data-theme', data.theme);
+                }
+            })
+            .catch(error => console.error('Erro ao alternar tema:', error));
+        });
+    
+        document.documentElement.setAttribute('data-theme', '{{ theme }}');
     </script>
 </body>
 </html>
