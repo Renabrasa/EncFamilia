@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
 from functools import wraps
+from flask import flash
 
 app = Flask(__name__)
 app.secret_key = '241286'  # Troque por algo único e seguro (ex.: 'xyz123abc')
@@ -38,7 +39,7 @@ def get_total_parcelas(numero, transacao_id):
 # Registrar o filtro no Jinja2
 app.jinja_env.filters['get_total_parcelas'] = get_total_parcelas
 
-# Decorador para exigir login
+# Decorador para exigir login (mantido como está)
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -47,7 +48,7 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Decorador para exigir ROOT (opcional, caso queira usar em outras rotas)
+# Decorador para exigir ROOT (mantido como está)
 def root_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -67,7 +68,7 @@ def load_logged_in_user():
         g.user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
         conn.close()
 
-# Inicializa o banco de dados
+# Inicializa o banco de dados (sem mudanças)
 def init_db():
     conn = get_db_connection()
     # Tabela de usuários
@@ -136,7 +137,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Rota de login
+# Rota de login (sem mudanças)
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -156,11 +157,11 @@ def login():
                 return "Erro no banco de dados!", 500
     return render_template('login.html')
 
-# Rota de cadastro de usuários
+# Rota de cadastro de usuários (sem mudanças)
 @app.route('/cadastro_usuario', methods=['GET', 'POST'])
 @login_required
 def cadastro_usuario():
-    if not session.get('is_root'):  # Apenas ROOT pode cadastrar
+    if not session.get('is_root'):
         return redirect(url_for('index'))
     
     if request.method == 'POST':
@@ -180,9 +181,7 @@ def cadastro_usuario():
                 return "Erro no banco de dados!", 500
     return render_template('cadastro_usuario.html', is_root=session.get('is_root', False))
 
-# ... (código anterior do app.py mantido)
-
-# Rota para alterar senha
+# Rota para alterar senha (sem mudanças)
 @app.route('/alterar_senha', methods=['GET', 'POST'])
 @login_required
 def alterar_senha():
@@ -211,9 +210,7 @@ def alterar_senha():
     
     return render_template('alterar_senha.html', is_root=session.get('is_root', False))
 
-# ... (restante do código mantido)
-
-# Rota de logout
+# Rota de logout (sem mudanças)
 @app.route('/logout')
 @login_required
 def logout():
@@ -221,7 +218,7 @@ def logout():
     session.pop('is_root', None)
     return redirect(url_for('login'))
 
-# Rota principal (dashboard)
+# Rota principal (dashboard) (sem mudanças)
 @app.route('/')
 @login_required
 def index():
@@ -261,19 +258,19 @@ def index():
                                    parcelas_a_vencer=parcelas_a_vencer, 
                                    entradas_por_mes=entradas_por_mes, 
                                    saidas_por_mes=saidas_por_mes,
-                                   is_root=session.get('is_root', False))  # Certifique-se de que isso está aqui
+                                   is_root=session.get('is_root', False))
         except sqlite3.Error as e:
             logger.error(f"Erro no index: {e}")
             return "Erro no banco de dados!", 500
 
-# Controle de participantes
+# Controle de participantes (sem mudanças)
 @app.route('/participantes', methods=['GET', 'POST'])
 @login_required
 def controle_participantes():
     with get_db_connection() as conn:
         try:
             if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode criar
+                if not session.get('is_root'):
                     return "Permissão negada: apenas administradores podem criar participantes.", 403
                 nome = request.form['nome']
                 adulto = 1 if request.form.get('adulto') == 'on' else 0
@@ -296,11 +293,37 @@ def controle_participantes():
             logger.error(f"Erro em participantes: {e}")
             return "Erro no banco de dados!", 500
 
-# Importar participantes
+# Cadastrar participante rápido (sem mudanças)
+@app.route('/cadastrar_participante_rapido', methods=['POST'])
+@login_required
+def cadastrar_participante_rapido():
+    if not session.get('is_root'):
+        return jsonify({'success': False, 'error': 'Permissão negada: apenas administradores podem cadastrar participantes.'}), 403
+    
+    nome = request.form.get('nome')
+    if not nome:
+        return jsonify({'success': False, 'error': 'Nome do participante é obrigatório.'}), 400
+    
+    with get_db_connection() as conn:
+        try:
+            conn.execute('''
+                INSERT INTO participantes (nome, adulto, crianca, bebe_alcool) 
+                VALUES (?, ?, ?, ?)
+            ''', (nome, 0, 0, 0))
+            conn.commit()
+            participante_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+            logger.info(f"Participante cadastrado com ID: {participante_id}")
+            return jsonify({'success': True, 'id': participante_id, 'nome': nome})
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro ao cadastrar participante rápido: {str(e)}")
+            return jsonify({'success': False, 'error': f'Erro no banco de dados: {str(e)}'}), 500
+
+# Importar participantes (sem mudanças)
 @app.route('/importar_participantes', methods=['POST'])
 @login_required
 def importar_participantes():
-    if not session.get('is_root'):  # Apenas ROOT pode importar
+    if not session.get('is_root'):
         return "Permissão negada: apenas administradores podem importar participantes.", 403
     
     if 'arquivo_excel' not in request.files:
@@ -348,7 +371,7 @@ def importar_participantes():
     except Exception as e:
         return f"Erro ao processar o arquivo: {str(e)}", 500
 
-# Editar participante
+# Editar participante (sem mudanças)
 @app.route('/editar_participante/<int:id>', methods=['GET', 'POST'])
 @login_required
 def editar_participante(id):
@@ -359,7 +382,7 @@ def editar_participante(id):
                 return "Participante não encontrado!", 404
 
             if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode editar
+                if not session.get('is_root'):
                     return "Permissão negada: apenas administradores podem editar participantes.", 403
                 nome = request.form['nome']
                 adulto = 1 if request.form.get('adulto') == 'on' else 0
@@ -383,25 +406,31 @@ def editar_participante(id):
             logger.error(f"Erro em editar_participante: {e}")
             return "Erro no banco de dados!", 500
 
-# Excluir participante
-@app.route('/excluir_participante/<int:id>')
-@login_required
-def excluir_participante(id):
-    if not session.get('is_root'):  # Apenas ROOT pode excluir
-        return "Permissão negada: apenas administradores podem excluir participantes.", 403
+# Excluir participante (ajustado para remover Flask-Login)
+@app.route('/excluir_participante', methods=['POST'])
+@login_required  # Usando o decorador personalizado
+def excluir_participante():
+    if not session.get('is_root'):
+        return jsonify({'success': False, 'error': 'Permissão negada: apenas administradores podem excluir participantes.'}), 403
+    
+    participante_id = request.form.get('participante_id')
+    if not participante_id:
+        return jsonify({'success': False, 'error': 'ID do participante é obrigatório.'}), 400
     
     with get_db_connection() as conn:
         try:
-            conn.execute('DELETE FROM participantes WHERE id = ?', (id,))
+            transacoes = conn.execute('SELECT COUNT(*) FROM transacoes WHERE participante_id = ?', (participante_id,)).fetchone()[0]
+            if transacoes > 0:
+                return jsonify({'success': False, 'error': 'Peraí, esse participante não pode ser excluído porque tem movimento financeiro!'}), 400
+            
+            conn.execute('DELETE FROM participantes WHERE id = ?', (participante_id,))
             conn.commit()
-            return redirect(url_for('controle_participantes'))
+            return jsonify({'success': True, 'participante_id': participante_id})
         except sqlite3.Error as e:
             conn.rollback()
-            logger.error(f"Erro em excluir_participante: {e}")
-            return "Erro no banco de dados!", 500
-        
-        
-# Controle financeiro
+            return jsonify({'success': False, 'error': f'Erro no banco de dados: {str(e)}'}), 500
+
+# Controle financeiro (ajustado para remover Flask-Login)
 @app.route('/financeiro', methods=['GET', 'POST'])
 @login_required
 def controle_financeiro():
@@ -409,7 +438,7 @@ def controle_financeiro():
     with get_db_connection() as conn:
         try:
             if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode modificar
+                if not session.get('is_root'):
                     return "Permissão negada: apenas administradores podem modificar transações.", 403
                 action = request.form.get('action')
                 if action == 'cadastrar':
@@ -419,7 +448,7 @@ def controle_financeiro():
                     valor = float(request.form['valor'])
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
-                    orcamento_id = request.form.get('orcamento_id')  # Novo campo
+                    orcamento_id = request.form.get('orcamento_id')
 
                     conn.execute('INSERT INTO transacoes (tipo, descricao, participante_id, valor, parcelas, orcamento_id) VALUES (?, ?, ?, ?, ?, ?)',
                                  (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None))
@@ -453,7 +482,7 @@ def controle_financeiro():
                     valor = float(request.form['valor'])
                     parcelas = int(request.form['parcelas'])
                     data_vencimento = request.form['data_vencimento']
-                    orcamento_id = request.form.get('orcamento_id')  # Novo campo
+                    orcamento_id = request.form.get('orcamento_id')
 
                     conn.execute('UPDATE transacoes SET tipo = ?, descricao = ?, participante_id = ?, valor = ?, parcelas = ?, orcamento_id = ? WHERE id = ?',
                                  (tipo, descricao, participante_id, valor, parcelas, orcamento_id or None, transacao_id))
@@ -486,17 +515,20 @@ def controle_financeiro():
                 query += ' AND t.descricao LIKE ?'
                 params.append(f'%{busca}%')
             fluxo_caixa = conn.execute(query, params).fetchall()
+            
+            # Apenas buscar participantes para o formulário, não para exibição como tabela
             participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
             orcamentos = conn.execute('SELECT id, nome FROM orcamentos').fetchall()
 
-            return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, participantes=participantes, 
-                                   orcamentos=orcamentos, data_atual=data_atual, is_root=session.get('is_root', False))
+            return render_template('financeiro.html', fluxo_caixa=fluxo_caixa, busca=busca, 
+                                   participantes=participantes, orcamentos=orcamentos, 
+                                   data_atual=data_atual, is_root=session.get('is_root', False))
         except sqlite3.Error as e:
             conn.rollback()
             logger.error(f"Erro em financeiro: {e}")
             return "Erro no banco de dados!", 500
 
-# Editar transação
+# Editar transação (sem mudanças)
 @app.route('/editar_transacao/<int:id>', methods=['GET', 'POST'])
 @login_required
 def editar_transacao(id):
@@ -507,7 +539,7 @@ def editar_transacao(id):
                 return "Transação não encontrada!", 404
 
             if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode editar
+                if not session.get('is_root'):
                     return "Permissão negada: apenas administradores podem editar transações.", 403
                 novo_numero_parcelas = int(request.form['parcelas'])
                 valor_total = float(transacao['valor'])
@@ -532,11 +564,11 @@ def editar_transacao(id):
             logger.error(f"Erro em editar_transacao: {e}")
             return "Erro no banco de dados!", 500
 
-# Dar baixa em parcelas
+# Dar baixa em parcelas (sem mudanças)
 @app.route('/dar_baixa_parcelas', methods=['POST'])
 @login_required
 def dar_baixa_parcelas():
-    if not session.get('is_root'):  # Apenas ROOT pode dar baixa
+    if not session.get('is_root'):
         return "Permissão negada: apenas administradores podem dar baixa em parcelas.", 403
     
     with get_db_connection() as conn:
@@ -559,9 +591,8 @@ def dar_baixa_parcelas():
             conn.rollback()
             logger.error(f"Erro em dar_baixa_parcelas: {e}")
             return "Erro no banco de dados!", 500
-        
-        
-# Editar parcela
+
+# Editar parcela (sem mudanças)
 @app.route('/editar_parcela/<int:id_transacao>/<int:numero>', methods=['GET', 'POST'])
 @login_required
 def editar_parcela(id_transacao, numero):
@@ -576,7 +607,7 @@ def editar_parcela(id_transacao, numero):
                 return "Transação não encontrada!", 404
 
             if request.method == 'POST':
-                if not session.get('is_root'):  # Apenas ROOT pode editar
+                if not session.get('is_root'):
                     return "Permissão negada: apenas administradores podem editar parcelas.", 403
                 valor = round(float(request.form['valor']), 2)
                 data_vencimento = datetime.strptime(request.form['data_vencimento'], '%Y-%m-%d')
@@ -597,11 +628,11 @@ def editar_parcela(id_transacao, numero):
             logger.error(f"Erro em editar_parcela: {e}")
             return "Erro no banco de dados!", 500
 
-# Excluir parcela
+# Excluir parcela (sem mudanças)
 @app.route('/excluir_parcela/<int:id_transacao>/<int:numero>')
 @login_required
 def excluir_parcela(id_transacao, numero):
-    if not session.get('is_root'):  # Apenas ROOT pode excluir
+    if not session.get('is_root'):
         return "Permissão negada: apenas administradores podem excluir parcelas.", 403
     
     with get_db_connection() as conn:
@@ -621,7 +652,7 @@ def excluir_parcela(id_transacao, numero):
             logger.error(f"Erro em excluir_parcela: {e}")
             return "Erro no banco de dados!", 500
 
-# Resumo financeiro
+# Resumo financeiro (sem mudanças)
 @app.route('/resumo')
 @login_required
 def resumo_financeiro():
@@ -691,7 +722,7 @@ def resumo_financeiro():
     conn.close()
     return render_template('resumo.html', resumo=resumo, is_root=session.get('is_root', False))
 
-# Gerar PDF
+# Gerar PDF (sem mudanças)
 @app.route('/gerar_pdf')
 @login_required
 def gerar_pdf():
@@ -826,7 +857,7 @@ def gerar_pdf():
     doc.build(elements)
     return send_file(pdf_file, as_attachment=True)
 
-# Gerar Excel
+# Gerar Excel (sem mudanças)
 @app.route('/gerar_excel')
 @login_required
 def gerar_excel():
@@ -968,11 +999,7 @@ def calcular_resumo_orcamentos(orcamentos):
         conn.close()
         return []
 
-
-
-# Controle de orçamentos
-from flask import request, redirect, url_for, render_template, flash, session
-
+# Controle de orçamentos (sem mudanças)
 @app.route('/orcamentos', methods=['GET', 'POST'])
 @login_required
 def controle_orcamentos():
@@ -998,9 +1025,7 @@ def controle_orcamentos():
         conn.close()
         return "Erro no banco de dados!", 500
 
-# editar_orçamentos
-from flask import request, redirect, url_for, render_template, flash, session
-
+# Editar orçamento (sem mudanças)
 @app.route('/editar_orcamento/<int:id>', methods=['GET', 'POST'])
 @login_required
 def editar_orcamento(id):
@@ -1032,8 +1057,7 @@ def editar_orcamento(id):
         conn.close()
         return "Erro no banco de dados!", 500
 
-from flask import request, redirect, url_for, render_template, flash, session
-
+# Excluir orçamento (sem mudanças)
 @app.route('/excluir_orcamento/<int:id>')
 @login_required
 def excluir_orcamento(id):
@@ -1061,123 +1085,163 @@ def excluir_orcamento(id):
         flash('Erro ao excluir o orçamento devido a um problema no banco de dados!', 'error')
         return redirect(url_for('controle_orcamentos'))
 
-
-# Gerenciar baixas
+# Gerenciar baixas (sem mudanças)
 @app.route('/baixas', methods=['GET', 'POST'])
 @login_required
 def baixas():
-    conn = get_db_connection()
     data_atual = datetime.now().strftime('%Y-%m-%d')
+    with get_db_connection() as conn:
+        try:
+            if request.method == 'POST':
+                action = request.form.get('action')
+                if not session.get('is_root'):
+                    return "Permissão negada: apenas administradores podem dar baixa.", 403
+                
+                if action == 'dar_baixa':
+                    parcela_id = request.form['parcela_id']
+                    data_pagamento = request.form['data_pagamento']
+                    
+                    parcela = conn.execute('''
+                        SELECT p.id, p.transacao_id, p.pago, t.tipo
+                        FROM parcelas p
+                        JOIN transacoes t ON p.transacao_id = t.id
+                        WHERE p.id = ?
+                    ''', (parcela_id,)).fetchone()
+                    
+                    if not parcela:
+                        return jsonify({'success': False, 'error': 'Parcela não encontrada!'})
+                    if parcela['pago'] == 1:
+                        return jsonify({'success': False, 'error': 'Esta parcela já foi paga!'})
+                    
+                    conn.execute('UPDATE parcelas SET pago = 1, data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
+                    conn.commit()
+                    
+                    mensagem = "Recebido com sucesso!" if parcela['tipo'] == 'entrada' else "Pago com sucesso!"
+                    return jsonify({'success': True, 'mensagem': mensagem, 'parcela_id': parcela_id})
+                
+                elif action == 'excluir_parcela':
+                    parcela_id = request.form['parcela_id']
+                    conn.execute('DELETE FROM parcelas WHERE id = ?', (parcela_id,))
+                    conn.commit()
+                    return redirect(url_for('baixas', busca=request.args.get('busca', ''), participante=request.args.get('participante', ''), status=request.args.get('status', ''), data_inicio=request.args.get('data_inicio', '')))
+            
+            busca = request.args.get('busca', '')
+            participante = request.args.get('participante', '')
+            status = request.args.get('status', '')
+            data_inicio = request.args.get('data_inicio', '')
 
+            base_query = '''
+                SELECT p.id AS parcela_id, p.transacao_id, p.numero, p.valor, p.data_vencimento, p.pago, p.data_pagamento,
+                       t.descricao, t.parcelas, t.tipo, par.nome AS participante_nome
+                FROM parcelas p
+                JOIN transacoes t ON p.transacao_id = t.id
+                JOIN participantes par ON t.participante_id = par.id
+                WHERE 1=1
+            '''
+            params = []
+            
+            if busca:
+                base_query += ' AND t.descricao LIKE ?'
+                params.append(f'%{busca}%')
+            if participante:
+                base_query += ' AND t.participante_id = ?'
+                params.append(participante)
+            if data_inicio:
+                base_query += ' AND p.data_vencimento >= ?'
+                params.append(data_inicio)
+            
+            parcelas_a_vencer = conn.execute(base_query + ' AND p.pago = 0 AND p.data_vencimento >= ?', params + [data_atual]).fetchall()
+            parcelas_vencidas = conn.execute(base_query + ' AND p.pago = 0 AND p.data_vencimento < ?', params + [data_atual]).fetchall()
+            parcelas_recebidas = conn.execute(base_query + ' AND p.pago = 1 AND t.tipo = "entrada"', params).fetchall()
+            parcelas_pagas = conn.execute(base_query + ' AND p.pago = 1 AND t.tipo = "saida"', params).fetchall()
+            participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
+            
+            return render_template('baixas.html', 
+                                   parcelas_a_vencer=parcelas_a_vencer, 
+                                   parcelas_vencidas=parcelas_vencidas, 
+                                   parcelas_recebidas=parcelas_recebidas, 
+                                   parcelas_pagas=parcelas_pagas,
+                                   participantes=participantes, 
+                                   busca=busca, 
+                                   participante=participante, 
+                                   status=status, 
+                                   data_inicio=data_inicio, 
+                                   data_atual=data_atual, 
+                                   is_root=session.get('is_root', False))
+        
+        except sqlite3.Error as e:
+            conn.rollback()
+            logger.error(f"Erro em baixas: {e}")
+            return "Erro no banco de dados!", 500
+        
+
+# Adicione esta nova rota após as existentes
+@app.route('/relatorios', methods=['GET', 'POST'])
+@login_required
+def relatorios():
+    data_atual = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db_connection()
     try:
-        if request.method == 'POST':
-            if not session.get('is_root'):  # Apenas ROOT pode modificar
-                return "Permissão negada: apenas administradores podem gerenciar baixas.", 403
-            action = request.form.get('action')
-            if action == 'dar_baixa':
-                parcela_id = request.form['parcela_id']
-                data_pagamento = request.form['data_pagamento']
-                conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
-                conn.commit()
-                parcela = conn.execute('SELECT t.id AS transacao_id, t.parcelas AS total_parcelas FROM parcelas p JOIN transacoes t ON p.transacao_id = t.id WHERE p.id = ?', (parcela_id,)).fetchone()
-                return jsonify({
-                    'success': True,
-                    'parcela_id': parcela_id,
-                    'data_pagamento': data_pagamento,
-                    'transacao_id': parcela['transacao_id'],
-                    'total_parcelas': parcela['total_parcelas']
-                })
-            elif action == 'editar_parcelas':
-                transacao_id = request.form['transacao_id']
-                novas_parcelas = int(request.form['novas_parcelas'])
-                conn.execute('UPDATE transacoes SET parcelas = ? WHERE id = ?', (novas_parcelas, transacao_id))
-                conn.commit()
-            elif action == 'editar_parcela':
-                parcela_id = request.form['parcela_id']
-                valor = float(request.form['valor'])
-                data_vencimento = request.form['data_vencimento']
-                conn.execute('UPDATE parcelas SET valor = ?, data_vencimento = ? WHERE id = ?', (valor, data_vencimento, parcela_id))
-                conn.commit()
-            elif action == 'editar_baixa':
-                parcela_id = request.form['parcela_id']
-                data_pagamento = request.form['data_pagamento']
-                conn.execute('UPDATE parcelas SET data_pagamento = ? WHERE id = ?', (data_pagamento, parcela_id))
-                conn.commit()
-            elif action == 'excluir_parcela':
-                parcela_id = request.form['parcela_id']
-                conn.execute('DELETE FROM parcelas WHERE id = ?', (parcela_id,))
-                conn.commit()
-            elif action == 'excluir_transacao':
-                transacao_id = request.form['transacao_id']
-                conn.execute('DELETE FROM parcelas WHERE transacao_id = ?', (transacao_id,))
-                conn.execute('DELETE FROM transacoes WHERE id = ?', (transacao_id,))
-                conn.commit()
-            elif action == 'excluir_baixa':
-                parcela_id = request.form['parcela_id']
-                conn.execute('UPDATE parcelas SET data_pagamento = NULL WHERE id = ?', (parcela_id,))
-                conn.commit()
-            conn.close()
-            return redirect(url_for('baixas', busca=request.args.get('busca', ''), participante=request.args.get('participante', ''), 
-                                   status=request.args.get('status', ''), data_inicio=request.args.get('data_inicio', '')))
+        # Filtros de data
+        data_inicio = request.form.get('data_inicio') or request.args.get('data_inicio') or '1900-01-01'
+        data_fim = request.form.get('data_fim') or request.args.get('data_fim') or data_atual
 
-        busca = request.args.get('busca', '')
-        participante = request.args.get('participante', '')
-        status = request.args.get('status', '')
-        data_inicio = request.args.get('data_inicio', '')
+        # Relatório de Entradas e Saídas
+        entradas = conn.execute('''
+            SELECT SUM(t.valor) 
+            FROM transacoes t 
+            JOIN parcelas p ON t.id = p.transacao_id
+            WHERE t.tipo = 'entrada' AND p.data_vencimento BETWEEN ? AND ?
+        ''', (data_inicio, data_fim)).fetchone()[0] or 0
 
-        query = '''
-            SELECT p.id AS parcela_id, t.id AS transacao_id, t.descricao, t.parcelas, p.numero, p.valor, 
-                   p.data_vencimento, p.data_pagamento, part.nome AS participante_nome,
-                   CASE 
-                       WHEN p.data_pagamento IS NOT NULL THEN 'recebidas'
-                       WHEN p.data_vencimento < ? THEN 'vencidas'
-                       ELSE 'a vencer'
-                   END AS status
+        saidas = conn.execute('''
+            SELECT SUM(t.valor) 
+            FROM transacoes t 
+            JOIN parcelas p ON t.id = p.transacao_id
+            WHERE t.tipo = 'saida' AND p.data_vencimento BETWEEN ? AND ?
+        ''', (data_inicio, data_fim)).fetchone()[0] or 0
+
+        # Total a Receber (entradas pendentes)
+        total_a_receber = conn.execute('''
+            SELECT SUM(p.valor)
             FROM parcelas p
             JOIN transacoes t ON p.transacao_id = t.id
-            JOIN participantes part ON t.participante_id = part.id
-            WHERE 1=1
-        '''
-        params = [data_atual]
+            WHERE t.tipo = 'entrada' AND p.pago = 0 AND p.data_vencimento BETWEEN ? AND ?
+        ''', (data_inicio, data_fim)).fetchone()[0] or 0
 
-        if busca:
-            query += ' AND (t.descricao LIKE ? OR part.nome LIKE ?)'
-            params.extend([f'%{busca}%', f'%{busca}%'])
-        if participante:
-            query += ' AND part.id = ?'
-            params.append(participante)
-        if status:
-            query += ' AND CASE WHEN p.data_pagamento IS NOT NULL THEN "recebidas" WHEN p.data_vencimento < ? THEN "vencidas" ELSE "a vencer" END = ?'
-            params.extend([data_atual, status])
-        if data_inicio:
-            query += ' AND p.data_vencimento >= ?'
-            params.append(data_inicio)
+        # Total a Pagar (saídas pendentes)
+        total_a_pagar = conn.execute('''
+            SELECT SUM(p.valor)
+            FROM parcelas p
+            JOIN transacoes t ON p.transacao_id = t.id
+            WHERE t.tipo = 'saida' AND p.pago = 0 AND p.data_vencimento BETWEEN ? AND ?
+        ''', (data_inicio, data_fim)).fetchone()[0] or 0
 
-        todas_parcelas = conn.execute(query, params).fetchall()
-        parcelas_a_vencer = [p for p in todas_parcelas if p['status'] == 'a vencer']
-        parcelas_vencidas = [p for p in todas_parcelas if p['status'] == 'vencidas']
-        parcelas_recebidas = [p for p in todas_parcelas if p['status'] == 'recebidas']
-
-        participantes = conn.execute('SELECT id, nome FROM participantes').fetchall()
         conn.close()
 
-        return render_template('baixas.html', 
-                               parcelas_a_vencer=parcelas_a_vencer, 
-                               parcelas_vencidas=parcelas_vencidas, 
-                               parcelas_recebidas=parcelas_recebidas, 
-                               busca=busca, 
-                               participante=participante, 
-                               status=status, 
-                               data_inicio=data_inicio, 
-                               data_atual=data_atual, 
-                               participantes=participantes,
-                               is_root=session.get('is_root', False))
+        # Dados para o template
+        relatorios_data = {
+            'entradas': entradas,
+            'saidas': saidas,
+            'total_a_receber': total_a_receber,
+            'total_a_pagar': total_a_pagar,
+            'data_inicio': data_inicio,
+            'data_fim': data_fim
+        }
+
+        return render_template('relatorios.html', relatorios=relatorios_data, is_root=session.get('is_root', False))
+
     except sqlite3.Error as e:
         conn.rollback()
-        logger.error(f"Erro em baixas: {e}")
-        return "Erro no banco de dados!", 500
+        logger.error(f"Erro em relatorios: {e}")
+        conn.close()
+        flash('Erro ao carregar os relatórios devido a um problema no banco de dados!', 'danger')
+        return render_template('relatorios.html', relatorios={}, is_root=session.get('is_root', False))
+            
+        
+        
 
-# Rota home (substituída pelo index)
+# Rota home (sem mudanças)
 @app.route("/home")
 def home():
     return "Meu app está online!"

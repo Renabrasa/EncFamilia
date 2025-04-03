@@ -16,37 +16,27 @@
             .nav-tabs .nav-link { margin-bottom: 0.5rem; }
             .hide-on-mobile { display: none; }
         }
-        /* Estilo dos botões */
         .btn {
-            width: 150px; /* Largura fixa para botões normais */
-            padding: 8px 12px; /* Padding uniforme */
-            font-size: 1rem; /* Tamanho da fonte */
-            border-radius: 6px; /* Bordas arredondadas */
+            width: 150px;
+            padding: 8px 12px;
+            font-size: 1rem;
+            border-radius: 6px;
         }
         .btn-sm {
-            width: 40px; /* Largura fixa para botões pequenos */
-            height: 40px; /* Altura fixa para uniformidade */
-            padding: 0; /* Remove padding interno */
-            font-size: 0.9rem; /* Tamanho da fonte reduzido */
-            line-height: 40px; /* Centraliza o ícone verticalmente */
-            border-radius: 6px; /* Bordas arredondadas */
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            font-size: 0.9rem;
+            line-height: 40px;
+            border-radius: 6px;
         }
         @media (max-width: 768px) {
-            .btn {
-                width: 120px; /* Reduz a largura em telas menores */
-                padding: 6px 10px; /* Padding ajustado */
-                font-size: 0.9rem; /* Fonte menor */
-            }
-            .btn-sm {
-                width: 35px; /* Reduz ainda mais os pequenos */
-                height: 35px;
-                line-height: 35px;
-            }
+            .btn { width: 120px; padding: 6px 10px; font-size: 0.9rem; }
+            .btn-sm { width: 35px; height: 35px; line-height: 35px; }
         }
     </style>
 </head>
 <body>
-    <!-- Container para Toasts -->
     <div class="position-fixed top-0 end-0 p-3" style="z-index: 1050;">
         <div id="toastContainer"></div>
     </div>
@@ -54,7 +44,6 @@
     <div class="container">
         <h1 class="my-4 text-center">Baixas</h1>
 
-        <!-- Botões de ação -->
         <div class="mb-4 text-end">
             <a href="{{ url_for('controle_financeiro') }}" class="btn btn-info">
                 <i class="fas fa-money-bill-wave me-2"></i>Financeiro
@@ -64,7 +53,6 @@
             </a>
         </div>
 
-        <!-- Filtros -->
         <div class="card mb-4">
             <div class="card-body">
                 <form method="GET" action="{{ url_for('baixas') }}">
@@ -88,6 +76,7 @@
                                 <option value="a vencer" {{ 'selected' if status == 'a vencer' else '' }}>A Vencer</option>
                                 <option value="vencidas" {{ 'selected' if status == 'vencidas' else '' }}>Vencidas</option>
                                 <option value="recebidas" {{ 'selected' if status == 'recebidas' else '' }}>Recebidas</option>
+                                <option value="pagas" {{ 'selected' if status == 'pagas' else '' }}>Pagas</option>
                             </select>
                         </div>
                         <div class="col-md-3 mb-3">
@@ -99,7 +88,6 @@
             </div>
         </div>
 
-        <!-- Abas -->
         <ul class="nav nav-tabs" id="baixasTab" role="tablist">
             <li class="nav-item">
                 <button class="nav-link {{ 'active' if not status or status == 'a vencer' else '' }}" id="a-vencer-tab" data-bs-toggle="tab" data-bs-target="#a-vencer" type="button" role="tab" aria-controls="a-vencer" aria-selected="true">A Vencer</button>
@@ -110,9 +98,11 @@
             <li class="nav-item">
                 <button class="nav-link {{ 'active' if status == 'recebidas' else '' }}" id="recebidas-tab" data-bs-toggle="tab" data-bs-target="#recebidas" type="button" role="tab" aria-controls="recebidas" aria-selected="false">Recebidas</button>
             </li>
+            <li class="nav-item">
+                <button class="nav-link {{ 'active' if status == 'pagas' else '' }}" id="pagas-tab" data-bs-toggle="tab" data-bs-target="#pagas" type="button" role="tab" aria-controls="pagas" aria-selected="false">Pagas</button>
+            </li>
         </ul>
 
-        <!-- Conteúdo das Abas -->
         <div class="tab-content" id="baixasTabContent">
             <div class="tab-pane fade {{ 'show active' if not status or status == 'a vencer' else '' }}" id="a-vencer" role="tabpanel" aria-labelledby="a-vencer-tab">
                 <div class="card mt-3">
@@ -250,6 +240,51 @@
                     </div>
                 </div>
             </div>
+
+            <div class="tab-pane fade {{ 'show active' if status == 'pagas' else '' }}" id="pagas" role="tabpanel" aria-labelledby="pagas-tab">
+                <div class="card mt-3">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Descrição</th>
+                                        <th>Participante</th>
+                                        <th>Valor</th>
+                                        <th class="hide-on-mobile">Parcela</th>
+                                        <th class="hide-on-mobile">Data Vencimento</th>
+                                        <th class="hide-on-mobile">Data Pagamento</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for parcela in parcelas_pagas %}
+                                    <tr id="parcela-{{ parcela['parcela_id'] }}">
+                                        <td>{{ parcela['descricao'] }}</td>
+                                        <td>{{ parcela['participante_nome'] }}</td>
+                                        <td>R$ {{ "%.2f" % parcela['valor'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['numero'] }}/{{ parcela['parcelas'] }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_vencimento']|replace('-', '/') }}</td>
+                                        <td class="hide-on-mobile">{{ parcela['data_pagamento']|replace('-', '/') }}</td>
+                                        <td>
+                                            {% if is_root %}
+                                            <form method="POST" action="{{ url_for('baixas') }}" class="d-inline">
+                                                <input type="hidden" name="action" value="excluir_parcela">
+                                                <input type="hidden" name="parcela_id" value="{{ parcela['parcela_id'] }}">
+                                                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem certeza que deseja excluir esta parcela?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -293,7 +328,7 @@
                 if (data.success) {
                     const row = document.getElementById(`parcela-${parcelaId}`);
                     row.remove();
-                    showToast('Parcela recebida com sucesso!', 'success');
+                    showToast(data.mensagem, 'success');
                 } else {
                     showToast('Erro ao dar baixa: ' + data.error, 'danger');
                 }

@@ -104,9 +104,11 @@
                 <!-- Navegação Adicional -->
                 <div class="mt-4 text-center">
                     <a href="{{ url_for('resumo_financeiro') }}" class="btn btn-secondary me-2">Ver Resumo</a>
-                    <a href="{{ url_for('gerar_pdf') }}" class="btn btn-secondary me-2">Gerar PDF</a>
-                    <a href="{{ url_for('gerar_excel') }}" class="btn btn-secondary me-2">Gerar Excel</a>
+                    <!--<a href="{{ url_for('gerar_pdf') }}" class="btn btn-secondary me-2">Gerar PDF</a>-->
+                    <!--<a href="{{ url_for('gerar_excel') }}" class="btn btn-secondary me-2">Gerar Excel</a>-->
                     <a href="{{ url_for('logout') }}" class="btn btn-danger me-2">Sair</a>
+                    <a href="{{ url_for('relatorios') }}" class="btn btn-info ms-2">
+                        <i class="fas fa-chart-bar me-2"></i>Relatórios</a>
                     {% if is_root %}
                     <a href="{{ url_for('cadastro_usuario') }}" class="btn btn-success">Cadastrar Novo Usuário</a>
                     {% endif %}
