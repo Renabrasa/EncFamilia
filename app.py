@@ -408,7 +408,7 @@ def editar_participante(id):
 
 # Excluir participante (ajustado para remover Flask-Login)
 @app.route('/excluir_participante', methods=['POST'])
-@login_required  # Usando o decorador personalizado
+@login_required
 def excluir_participante():
     if not session.get('is_root'):
         return jsonify({'success': False, 'error': 'Permissão negada: apenas administradores podem excluir participantes.'}), 403
@@ -421,7 +421,7 @@ def excluir_participante():
         try:
             transacoes = conn.execute('SELECT COUNT(*) FROM transacoes WHERE participante_id = ?', (participante_id,)).fetchone()[0]
             if transacoes > 0:
-                return jsonify({'success': False, 'error': 'Peraí, esse participante não pode ser excluído porque tem movimento financeiro!'}), 400
+                return jsonify({'success': False, 'error': 'Esse participante não pode ser excluído porque tem movimentação financeira!'})
             
             conn.execute('DELETE FROM participantes WHERE id = ?', (participante_id,))
             conn.commit()
